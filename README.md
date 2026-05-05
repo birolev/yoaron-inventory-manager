@@ -9,7 +9,7 @@ Instead of manual data entry, staff can take a photo of a clothing item. The app
 ## Tech Stack
 * **Frontend:** Flutter & Dart
 * **Backend:** Supabase (Postgres Database & Object Storage)
-* **AI:** Google Gemini API (2.0 Flash)
+* **AI:** Google Gemini API (3.1 Flash)
 * **Security:** flutter_dotenv (for API key protection)
 
 ## Features
