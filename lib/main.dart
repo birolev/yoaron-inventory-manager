@@ -20,7 +20,7 @@ void main() async {
   runApp(const YoaronApp());
 }
 
-// 1. The Root of the App
+
 class YoaronApp extends StatelessWidget {
   const YoaronApp({super.key});
 
@@ -32,7 +32,7 @@ class YoaronApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const InventoryScreen(), // Points to your main screen
+      home: const InventoryScreen(),
     );
   }
 }
@@ -108,7 +108,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
       final imageBytes = await _selectedImage!.readAsBytes();
       final base64Image = base64Encode(imageBytes);
 
-      // ---> PASTE YOUR GEMINI KEY HERE <---
+    
       final geminiKey = dotenv.env['GEMINI_API_KEY']!;
 
       final response = await http.post(
@@ -360,9 +360,9 @@ class InventoryListScreen extends StatefulWidget {
 class _InventoryListScreenState extends State<InventoryListScreen> {
   List<dynamic> _inventory = [];
   bool _isLoading = true;
-  String _selectedFilter = 'Minden'; // 'All' in Hungarian
+  String _selectedFilter = 'Minden'; 
 
-  // The categories to filter by (Includes 'Minden' at the start)
+  // The categories to filter by 
   final List<String> _filterCategories = [
     'Minden',
     'Poló',
@@ -386,7 +386,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   }
 
   // Grabs the data from Supabase
-// Grabs the data from Supabase
+
   Future<void> _fetchInventory() async {
     setState(() => _isLoading = true);
 
