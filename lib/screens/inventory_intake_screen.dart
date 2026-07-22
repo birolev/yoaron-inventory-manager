@@ -7,8 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:yoaron_app/constants/categories.dart';
-
-
+import 'package:yoaron_app/models/batch_image_queue.dart';
 
 import 'inventory_list_screen.dart';
 import 'search_screen.dart';
@@ -21,11 +20,10 @@ class InventoryScreen extends StatefulWidget {
 }
 
 class _InventoryScreenState extends State<InventoryScreen> {
-  File? _selectedImage;
-  
+  BatchImageQueue? _queue;
   final ImagePicker _picker = ImagePicker();
 
-  bool _isLoading = false;
+  bool _isUploading = false; // Used for final Supabase upload
   bool _isEditing = false;
 
   final TextEditingController _nameController = TextEditingController();
@@ -50,46 +48,76 @@ class _InventoryScreenState extends State<InventoryScreen> {
     super.dispose();
   }
 
-  Future<void> _pickImage(ImageSource source) async {
+  // --- Image Picking ---
+
+  Future<void> _pickSingleImageCamera() async {
     try {
       final XFile? pickedFile = await _picker.pickImage(
-        source: source,
+        source: ImageSource.camera,
         imageQuality: 70,
         maxWidth: 1000,
       );
 
       if (pickedFile != null) {
-        setState(() {
-          _selectedImage = File(pickedFile.path);
-          _isEditing = false;
-        });
+        _initializeQueue([pickedFile]);
       }
     } catch (e) {
-      _showSnackBar(
-        'Error picking image: $e',
-        isError: true,
-      );
+      _showSnackBar('Error picking image: $e', isError: true);
     }
   }
 
-  Future<void> _analyzeWithGemini() async {
-    if (_selectedImage == null) return;
+  Future<void> _pickGalleryImages() async {
+    try {
+      final List<XFile> pickedFiles = await _picker.pickMultiImage(
+        imageQuality: 70,
+        maxWidth: 1000,
+      );
 
-    setState(() => _isLoading = true);
+      if (pickedFiles.isNotEmpty) {
+        _initializeQueue(pickedFiles);
+      }
+    } catch (e) {
+      _showSnackBar('Error picking images: $e', isError: true);
+    }
+  }
+
+  void _initializeQueue(List<XFile> files) {
+    setState(() {
+      _queue = BatchImageQueue(files.map((f) => QueueItem(f)).toList());
+      _isEditing = false;
+    });
+    _startBackgroundAnalysis();
+  }
+
+  // --- AI Background Processing ---
+
+  Future<void> _startBackgroundAnalysis() async {
+    if (_queue == null) return;
+
+    // Process all items in the background
+    for (var item in _queue!.items) {
+      if (!item.isReady && !item.isAnalyzing) {
+        await _analyzeItem(item);
+      }
+    }
+  }
+
+  Future<void> _analyzeItem(QueueItem item) async {
+    item.isAnalyzing = true;
+    if (_queue?.current == item && mounted) {
+      setState(() {}); // Rebuild to show spinner if it's the current item
+    }
 
     try {
-      final imageBytes = await _selectedImage!.readAsBytes();
+      final imageBytes = await item.image.readAsBytes();
       final base64Image = base64Encode(imageBytes);
-
       final geminiKey = dotenv.env['GEMINI_API_KEY']!;
 
       final response = await http.post(
         Uri.parse(
           'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=$geminiKey',
         ),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           "contents": [
             {
@@ -118,46 +146,63 @@ class _InventoryScreenState extends State<InventoryScreen> {
       }
 
       final data = jsonDecode(response.body);
-
       final aiResult = jsonDecode(
         data['candidates'][0]['content']['parts'][0]['text'],
       );
 
-      setState(() {
-        _nameController.text = aiResult['name'] ?? "";
-        _brandController.text = aiResult['brand'] ?? "";
-        _priceController.text = aiResult['price']?.toString() ?? "0";
-        _colorController.text = aiResult['color'] ?? "";
-        _patternController.text = aiResult['pattern'] ?? "";
-        _sizeController.text = aiResult['size'] ?? "";
-        _conditionController.text = aiResult['condition'] ?? "";
-
-        _selectedCategory =
-            clothingCategories.contains(aiResult['category'])
-                ? aiResult['category']
-                : clothingCategories.first;
-
-        _isEditing = true;
-        _isLoading = false;
-      });
+      item.aiResult = aiResult;
     } catch (e) {
-      setState(() => _isLoading = false);
+      _showSnackBar('AI Error on an image: $e', isError: true);
+      // Even if it fails, mark as ready so user can manually fill it out
+      item.aiResult = {}; 
+    } finally {
+      item.isAnalyzing = false;
+      item.isReady = true;
 
-      _showSnackBar(
-        'AI Error: $e',
-        isError: true,
-      );
+      // If the user is currently looking at this item, populate the form
+      if (mounted && _queue?.current == item) {
+        _populateControllers(item);
+      } else if (mounted) {
+        setState(() {}); // Silent rebuild to update background progress indicators if needed
+      }
     }
   }
-    Future<void> _finalUpload() async {
-    setState(() => _isLoading = true);
+
+  void _populateControllers(QueueItem item) {
+    if (item.aiResult == null) return;
+    final aiResult = item.aiResult!;
+
+    setState(() {
+      _nameController.text = aiResult['name'] ?? "";
+      _brandController.text = aiResult['brand'] ?? "";
+      _priceController.text = aiResult['price']?.toString() ?? "0";
+      _colorController.text = aiResult['color'] ?? "";
+      _patternController.text = aiResult['pattern'] ?? "";
+      _sizeController.text = aiResult['size'] ?? "";
+      _conditionController.text = aiResult['condition'] ?? "";
+
+      _selectedCategory = clothingCategories.contains(aiResult['category'])
+          ? aiResult['category']
+          : clothingCategories.first;
+
+      _isEditing = true;
+    });
+  }
+
+  // --- Uploading and Queue Management ---
+
+  Future<void> _finalUpload() async {
+    if (_queue == null) return;
+    setState(() => _isUploading = true);
 
     try {
+      final currentItem = _queue!.current;
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final file = File(currentItem.image.path);
 
       await Supabase.instance.client.storage
           .from('clothes-images')
-          .upload(fileName, _selectedImage!);
+          .upload(fileName, file);
 
       final imageUrl = Supabase.instance.client.storage
           .from('clothes-images')
@@ -177,77 +222,91 @@ class _InventoryScreenState extends State<InventoryScreen> {
       });
 
       _showSnackBar('Item successfully saved to inventory!');
-
-      setState(() {
-        _isEditing = false;
-        _selectedImage = null;
-        _isLoading = false;
-
-        _nameController.clear();
-        _brandController.clear();
-        _priceController.clear();
-      });
+      _moveToNextItemInQueue();
     } catch (e) {
-      setState(() => _isLoading = false);
-
-      _showSnackBar(
-        'Save Error: $e',
-        isError: true,
-      );
+      setState(() => _isUploading = false);
+      _showSnackBar('Save Error: $e', isError: true);
     }
   }
 
-  void _showSnackBar(
-    String message, {
-    bool isError = false,
-  }) {
-    if (!mounted) return;
+  void _moveToNextItemInQueue() {
+    _nameController.clear();
+    _brandController.clear();
+    _priceController.clear();
+    _colorController.clear();
+    _patternController.clear();
+    _sizeController.clear();
+    _conditionController.clear();
+    _selectedCategory = null;
+    _isEditing = false;
+    _isUploading = false;
 
+    setState(() {
+      _queue!.moveNext();
+      if (!_queue!.hasNext) {
+        _queue = null; // Finished batch
+      } else {
+        // If the next item has already finished processing in the background, load it instantly!
+        if (_queue!.current.isReady) {
+          _populateControllers(_queue!.current);
+        }
+      }
+    });
+  }
+
+  void _discardCurrentItem() {
+    _moveToNextItemInQueue();
+  }
+
+  void _cancelEntireBatch() {
+    setState(() {
+      _queue = null;
+      _isEditing = false;
+      _isUploading = false;
+      _nameController.clear();
+      _brandController.clear();
+      _priceController.clear();
+    });
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor:
-            isError ? Colors.red : Colors.green,
+        backgroundColor: isError ? Colors.red : Colors.green,
       ),
     );
   }
 
+  // --- UI ---
+
   @override
   Widget build(BuildContext context) {
+    final bool hasQueue = _queue != null && _queue!.hasNext;
+    final QueueItem? currentItem = hasQueue ? _queue!.current : null;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Inventory Manager'),
-        backgroundColor:
-            Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
-            icon: const Icon(
-              Icons.image_search,
-              size: 30,
-            ),
+            icon: const Icon(Icons.image_search, size: 30),
             tooltip: 'Keresés (Search)',
             onPressed: () {
               Navigator.push(
-               context,
-                MaterialPageRoute(
-                  builder: (context) =>
-                     SearchScreen(),
-                ),
+                context,
+                MaterialPageRoute(builder: (context) => const SearchScreen()),
               );
             },
           ),
           IconButton(
-            icon: const Icon(
-              Icons.list,
-              size: 30,
-            ),
+            icon: const Icon(Icons.list, size: 30),
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) =>
-                      InventoryListScreen(),
-                ),
+                MaterialPageRoute(builder: (context) => const InventoryListScreen()),
               );
             },
           ),
@@ -257,40 +316,49 @@ class _InventoryScreenState extends State<InventoryScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
+            // Batch Progress Indicator
+            if (hasQueue) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Item ${_queue!.currentNumber} of ${_queue!.total}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  TextButton.icon(
+                    onPressed: _cancelEntireBatch,
+                    icon: const Icon(Icons.cancel, color: Colors.red, size: 18),
+                    label: const Text('Cancel Batch', style: TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+
+            // Image Preview Container
             Container(
               height: 300,
               width: double.infinity,
               decoration: BoxDecoration(
                 color: Colors.grey[200],
-                borderRadius:
-                    BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.grey[300]!,
-                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[300]!),
               ),
-              child: _selectedImage != null
+              child: currentItem != null
                   ? ClipRRect(
-                      borderRadius:
-                          BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(12),
                       child: Image.file(
-                        _selectedImage!,
+                        File(currentItem.image.path),
                         fit: BoxFit.cover,
                       ),
                     )
                   : const Column(
-                      mainAxisAlignment:
-                          MainAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
-                          Icons.add_a_photo,
-                          size: 80,
-                          color: Colors.grey,
-                        ),
+                        Icon(Icons.add_a_photo, size: 80, color: Colors.grey),
                         Text(
                           'No Image Selected',
-                          style: TextStyle(
-                            color: Colors.grey,
-                          ),
+                          style: TextStyle(color: Colors.grey),
                         ),
                       ],
                     ),
@@ -298,70 +366,45 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
             const SizedBox(height: 20),
 
-            if (!_isEditing && !_isLoading)
+            // Selection Buttons (Only visible if no queue is active)
+            if (!hasQueue && !_isUploading)
               Row(
-                mainAxisAlignment:
-                    MainAxisAlignment.spaceEvenly,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   ElevatedButton.icon(
-                    onPressed: () =>
-                        _pickImage(ImageSource.camera),
-                    icon:
-                        const Icon(Icons.camera_alt),
+                    onPressed: _pickSingleImageCamera,
+                    icon: const Icon(Icons.camera_alt),
                     label: const Text('Camera'),
                   ),
                   ElevatedButton.icon(
-                    onPressed: () =>
-                        _pickImage(ImageSource.gallery),
-                    icon: const Icon(
-                        Icons.photo_library),
-                    label: const Text('Gallery'),
+                    onPressed: _pickGalleryImages,
+                    icon: const Icon(Icons.photo_library),
+                    label: const Text('Gallery (Multi)'),
                   ),
                 ],
               ),
 
-            const SizedBox(height: 20),
-
-            if (_isLoading)
-              const Column(
+            // Background Processing / Uploading Indicators
+            if (_isUploading || (currentItem != null && currentItem.isAnalyzing))
+              Column(
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 10),
-                  Text("Processing..."),
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 10),
+                  Text(_isUploading ? "Uploading to inventory..." : "AI is analyzing this item..."),
                 ],
               ),
 
-            if (_selectedImage != null &&
-                !_isEditing &&
-                !_isLoading)
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _analyzeWithGemini,
-                  icon:
-                      const Icon(Icons.auto_awesome),
-                  label:
-                      const Text('Analyze with AI'),
-                  style: FilledButton.styleFrom(
-                    padding:
-                        const EdgeInsets.all(15),
-                  ),
-                ),
-              ),
-
-            if (_isEditing && !_isLoading) ...[
+            // Edit Form (Appears when item is ready)
+            if (hasQueue && _isEditing && !_isUploading) ...[
               const Divider(height: 40),
 
               const Text(
                 'Verify Details',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
               ),
 
-              const SizedBox(height: 15), 
-                TextField(
+              const SizedBox(height: 15),
+              TextField(
                 controller: _nameController,
                 decoration: const InputDecoration(
                   labelText: 'Item Name',
@@ -440,15 +483,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   prefixIcon: Icon(Icons.category),
                 ),
                 items: clothingCategories
-                    .map(
-                      (category) => DropdownMenuItem(
-                        value: category,
-                        child: Text(category),
-                      ),
-                    )
+                    .map((category) => DropdownMenuItem(
+                          value: category,
+                          child: Text(category),
+                        ))
                     .toList(),
-                onChanged: (val) =>
-                    setState(() => _selectedCategory = val),
+                onChanged: (val) => setState(() => _selectedCategory = val),
               ),
 
               const SizedBox(height: 25),
@@ -458,9 +498,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 child: FilledButton.icon(
                   onPressed: _finalUpload,
                   icon: const Icon(Icons.cloud_upload),
-                  label: const Text(
-                    'Confirm & Save to Inventory',
-                  ),
+                  label: const Text('Confirm & Save to Inventory'),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.all(16),
                     backgroundColor: Colors.green[700],
@@ -469,12 +507,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
               ),
 
               TextButton(
-                onPressed: () => setState(() {
-                  _isEditing = false;
-                  _selectedImage = null;
-                }),
+                onPressed: _discardCurrentItem,
                 child: const Text(
-                  'Discard and Start Over',
+                  'Discard This Item',
                   style: TextStyle(color: Colors.red),
                 ),
               ),

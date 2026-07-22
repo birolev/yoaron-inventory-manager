@@ -9,7 +9,7 @@ class YoaronApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    print("YOARON BUILD");
+    print("YOARON BUILD2");
     return MaterialApp(
       title: 'Inventory Manager',
       debugShowCheckedModeBanner: false,
