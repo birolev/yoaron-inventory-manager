@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:yoaron_app/widgets/safe_bottom_sheet.dart';
+
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -31,7 +33,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final XFile? pickedFile = await _picker.pickImage(
         source: source,
         imageQuality: 50,
-        maxWidth: 600, // Kept small for speed!
+        maxWidth: 600,
       );
 
       if (pickedFile != null) {
@@ -56,7 +58,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final base64Image = base64Encode(imageBytes);
       final geminiKey = dotenv.env['GEMINI_API_KEY']!;
 
-      // 2. Ask Gemini to extract JUST the core searchable attributes
+      // 2. Ask Gemini to extract the core searchable attributes
       final response = await http.post(
         Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=$geminiKey'),
         headers: {'Content-Type': 'application/json'},
@@ -86,8 +88,8 @@ class _SearchScreenState extends State<SearchScreen> {
       // Save criteria to show the user what the AI is looking for
       setState(() => _aiCriteria = aiResult);
 
-      // 3. Query Supabase! 
-      // We look for unsold items that match the category, and use 'ilike' (fuzzy search) for the color
+      // 3. Query Supabase
+      // look for unsold items that match the category
       var query = Supabase.instance.client
           .from('inventory')
           .select()
@@ -98,7 +100,7 @@ class _SearchScreenState extends State<SearchScreen> {
         query = query.eq('category', searchCategory);
       }
       if (searchColor.isNotEmpty) {
-        query = query.ilike('color', '%$searchColor%'); // % allows partial matches (e.g., 'világoskék' matches 'kék')
+        query = query.ilike('color', '%$searchColor%'); 
       }
 
       final results = await query;
@@ -113,9 +115,9 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Keresési hiba: $e'), backgroundColor: Colors.red));
     }
   }
-  // --- NEW: THE DETAILS BOTTOM SHEET ---
+  
   void _showItemDetails(Map<String, dynamic> item) {
-    // Call global function instead of Flutter's default
+    
     showSafeBottomSheet(
       context: context,
       child: Column( 
@@ -147,7 +149,7 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
     );
   }
-  // A tiny helper widget to make the list look clean
+  
   Widget _buildDetailRow(String label, String value, {bool isHighlight = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -280,7 +282,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 }
 // --- GLOBAL HELPER FUNCTION ---
-Future<T?> showSafeBottomSheet<T>({
+/*Future<T?> showSafeBottomSheet<T>({
   required BuildContext context,
   required Widget child, 
 }) {
@@ -307,4 +309,4 @@ Future<T?> showSafeBottomSheet<T>({
       );
     },
   );
-}
+}*/
