@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -110,7 +110,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
 
     try {
-      final imageBytes = await item.image.readAsBytes();
+      final imageBytes = await item.bytes;
       final result = await Supabase.instance.client.functions.invoke(
         'gemini-vision',
         body: {
@@ -167,11 +167,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
     try {
       final currentItem = _queue!.current;
       final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final file = File(currentItem.image.path);
+      final imageBytes = await currentItem.bytes;
 
       await Supabase.instance.client.storage
           .from('clothes-images')
-          .upload(fileName, file);
+          .uploadBinary(fileName, imageBytes);
 
       final imageUrl = Supabase.instance.client.storage
           .from('clothes-images')
@@ -315,12 +315,26 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 border: Border.all(color: Colors.grey[300]!),
               ),
               child: currentItem != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.file(
-                        File(currentItem.image.path),
-                        fit: BoxFit.cover,
-                      ),
+                  ? FutureBuilder<Uint8List>(
+                      future: currentItem.bytes,
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return const Center(
+                            child: Icon(Icons.broken_image, size: 60, color: Colors.grey),
+                          );
+                        }
+                        if (!snapshot.hasData) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        return ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.memory(
+                            snapshot.data!,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                          ),
+                        );
+                      },
                     )
                   : const Column(
                       mainAxisAlignment: MainAxisAlignment.center,

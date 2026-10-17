@@ -1,13 +1,18 @@
+import 'dart:typed_data';
+
 import 'package:image_picker/image_picker.dart';
 
 
 class QueueItem{
   final XFile image;
+  late final Future<Uint8List> bytes;
   Map<String, dynamic>? aiResult;
   
   bool isAnalyzing = false;
   bool isReady = false;
-  QueueItem(this.image);
+  QueueItem(this.image) {
+    bytes = image.readAsBytes();
+  }
 }
 
 class BatchImageQueue {
