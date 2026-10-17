@@ -17,6 +17,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   bool _isLoading = true;
 
   String _selectedFilter = 'Minden';
+  String _selectedLocationFilter = 'All locations';
+  static const _locations = ['Csengery', 'Astoria'];
   String _sortColumn = 'created_at';
   bool _sortAscending = false;
 
@@ -33,6 +35,9 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
       if (_selectedFilter != 'Minden') {
         query = query.eq('category', _selectedFilter);
+      }
+      if (_selectedLocationFilter != 'All locations') {
+        query = query.eq('location', _selectedLocationFilter);
       }
 
       final data = await query.order(
@@ -63,6 +68,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     String brand,
     double price,
     String category,
+    String location,
     bool isSold,
   ) async {
     await Supabase.instance.client.from('inventory').update({
@@ -70,6 +76,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       'brand': brand,
       'price_est': price,
       'category': category,
+      'location': location,
       'is_sold': isSold,
     }).eq('id', id);
 
@@ -177,6 +184,9 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         editCategories.contains(item['category'])
             ? item['category']
             : editCategories.first;
+    String selectedLocation = _locations.contains(item['location'])
+        ? item['location']
+        : _locations.first;
 
     showSafeBottomSheet(
       context: context,
@@ -295,6 +305,27 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                 },
               ),
 
+              const SizedBox(height: 10),
+
+              DropdownButtonFormField<String>(
+                initialValue: selectedLocation,
+                decoration: const InputDecoration(
+                  labelText: 'Store location',
+                  border: OutlineInputBorder(),
+                ),
+                items: _locations
+                    .map((location) => DropdownMenuItem(
+                          value: location,
+                          child: Text(location),
+                        ))
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setSheetState(() => selectedLocation = value);
+                  }
+                },
+              ),
+
               const SizedBox(height: 25),
 
               Row(
@@ -348,6 +379,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                               ) ??
                               0.0,
                           selectedCat,
+                          selectedLocation,
                           itemIsSold,
                         );
                       },
@@ -417,29 +449,53 @@ appBar: AppBar(
         children: [
           // --- THE FILTER MENU ---
           Container(
-            height: 60,
+            height: 112,
             color: Colors.white,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              itemCount: filterCategories.length,
-              itemBuilder: (context, index) {
-                final category = filterCategories[index];
-                final isSelected = category == _selectedFilter;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: FilterChip(
-                    label: Text(category),
-                    selected: isSelected,
-                    onSelected: (bool selected) {
-                      setState(() => _selectedFilter = category);
-                      _fetchInventory();
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 56,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    itemCount: filterCategories.length,
+                    itemBuilder: (context, index) {
+                      final category = filterCategories[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: FilterChip(
+                          label: Text(category),
+                          selected: category == _selectedFilter,
+                          onSelected: (_) {
+                            setState(() => _selectedFilter = category);
+                            _fetchInventory();
+                          },
+                        ),
+                      );
                     },
-                    selectedColor: Theme.of(context).colorScheme.primaryContainer,
-                    checkmarkColor: Theme.of(context).colorScheme.primary,
                   ),
-                );
-              },
+                ),
+                SizedBox(
+                  height: 48,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    children: ['All locations', ..._locations].map((location) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(location),
+                          selected: location == _selectedLocationFilter,
+                          onSelected: (_) {
+                            setState(() => _selectedLocationFilter = location);
+                            _fetchInventory();
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
             ),
           ),
 
@@ -501,6 +557,10 @@ appBar: AppBar(
                                         Text(
                                           '${item['price_est']} Ft',
                                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green[700]),
+                                        ),
+                                        Text(
+                                          item['location'] ?? 'Csengery',
+                                          style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
                                         ),
                                       ],
                                     ),

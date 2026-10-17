@@ -33,6 +33,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
   final TextEditingController _conditionController = TextEditingController();
 
   String? _selectedCategory;
+  String _selectedLocation = 'Csengery';
+
+  static const _locations = ['Csengery', 'Astoria'];
 
   @override
   void dispose() {
@@ -179,6 +182,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         'brand': _brandController.text,
         'price_est': double.tryParse(_priceController.text) ?? 0.0,
         'category': _selectedCategory,
+        'location': _selectedLocation,
         'image_url': imageUrl,
         'color': _colorController.text,
         'pattern': _patternController.text,
@@ -455,6 +459,28 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         ))
                     .toList(),
                 onChanged: (val) => setState(() => _selectedCategory = val),
+              ),
+
+              const SizedBox(height: 12),
+
+              DropdownButtonFormField<String>(
+                initialValue: _selectedLocation,
+                decoration: const InputDecoration(
+                  labelText: 'Store location',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.store),
+                ),
+                items: _locations
+                    .map((location) => DropdownMenuItem(
+                          value: location,
+                          child: Text(location),
+                        ))
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedLocation = value);
+                  }
+                },
               ),
 
               const SizedBox(height: 25),

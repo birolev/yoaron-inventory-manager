@@ -20,6 +20,8 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isSearching = false;
   List<dynamic> _searchResults = [];
   Map<String, dynamic>? _aiCriteria; // Stores what the AI was looking for
+  String _selectedLocation = 'All locations';
+  static const _locations = ['All locations', 'Csengery', 'Astoria'];
 
   final List<String> _myCategories = [
     'Poló', 'Galléros', 'Kötött pulcsi', 'zipup', 'farmer', 
@@ -78,6 +80,10 @@ class _SearchScreenState extends State<SearchScreen> {
           .select()
           .eq('is_sold', false); // Only search items currently in the store
 
+      if (_selectedLocation != 'All locations') {
+        query = query.eq('location', _selectedLocation);
+      }
+
       // Apply filters if AI found them
       if (_myCategories.contains(searchCategory)) {
         query = query.eq('category', searchCategory);
@@ -113,6 +119,7 @@ class _SearchScreenState extends State<SearchScreen> {
           
               _buildDetailRow('Ár (Price):', '${item['price_est']} Ft', isHighlight: true),
               _buildDetailRow('Kategória:', item['category'] ?? '-'),
+              _buildDetailRow('Location:', item['location'] ?? 'Csengery'),
               _buildDetailRow('Méret (Size):', item['size'] ?? '-'),
               _buildDetailRow('Szín (Color):', item['color'] ?? '-'),
               _buildDetailRow('Minta (Pattern):', item['pattern'] ?? '-'),
@@ -163,8 +170,35 @@ class _SearchScreenState extends State<SearchScreen> {
           Container(
             color: Colors.white,
             padding: const EdgeInsets.all(16),
-            child: Row(
+            child: Column(
               children: [
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedLocation,
+                  decoration: const InputDecoration(
+                    labelText: 'Search location',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.store),
+                    isDense: true,
+                  ),
+                  items: _locations
+                      .map((location) => DropdownMenuItem(
+                            value: location,
+                            child: Text(location),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _selectedLocation = value;
+                        _searchResults = [];
+                        _aiCriteria = null;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
                 // Thumbnail Preview
                 GestureDetector(
                   onTap: () => _pickImage(ImageSource.camera),
@@ -202,6 +236,8 @@ class _SearchScreenState extends State<SearchScreen> {
                     ],
                   ),
                 )
+                  ],
+                ),
               ],
             ),
           ),
@@ -247,6 +283,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(item['brand'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
+                                  Text(item['location'] ?? 'Csengery', style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
                                   Text(item['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
                                   Text('${item['price_est']} Ft', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green[700])),
                                 ],
