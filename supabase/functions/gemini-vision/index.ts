@@ -43,6 +43,13 @@ Deno.serve(async (request) => {
       ? `Analyze this clothing item in Hungarian. Choose ONE category from: ${categories.join(", ")}. Return a JSON object with name (string), brand (string), category (string), price (number), color (string), pattern (string), condition (string, e.g. 'Új', 'Kiváló', 'Használt'), and size (string).`
       : `Analyze this clothing item. Identify its category (choose EXACTLY ONE from: ${categories.join(", ")}), its main color in Hungarian, and its pattern in Hungarian. Return a JSON object with category (string), color (string), and pattern (string).`;
 
+
+    const geminiStarted = performance.now();
+
+console.log(
+  `Image payload: ${Math.round(imageBase64.length * 0.75 / 1024)} KB decoded`,
+);
+
     const geminiResponse = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent",
       {
@@ -57,6 +64,9 @@ Deno.serve(async (request) => {
         }),
       },
     );
+    console.log(
+  `Gemini request: ${Math.round(performance.now() - geminiStarted)} ms`,
+  );
 
     if (!geminiResponse.ok) {
       console.error("Gemini request failed", geminiResponse.status, await geminiResponse.text());
