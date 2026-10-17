@@ -2,8 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -56,32 +54,17 @@ class _SearchScreenState extends State<SearchScreen> {
       // 1. Convert Image for Gemini
       final imageBytes = await _searchImage!.readAsBytes();
       final base64Image = base64Encode(imageBytes);
-      final geminiKey = dotenv.env['GEMINI_API_KEY']!;
-
-      // 2. Ask Gemini to extract the core searchable attributes
-      final response = await http.post(
-        Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=$geminiKey'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          "contents": [{
-            "parts": [
-              {
-                "text": "Analyze this clothing item. Identify its category (Choose EXACTLY ONE from: ${_myCategories.join(', ')}), its main color (in Hungarian, e.g. 'kék', 'piros', 'fekete'), and its pattern (e.g. 'kockás', 'csíkos', 'egyszínű'). Return pure JSON: {'category': string, 'color': string, 'pattern': string}"
-              },
-              {
-                "inlineData": {"mimeType": "image/jpeg", "data": base64Image}
-              }
-            ]
-          }],
-          "generationConfig": {"responseMimeType": "application/json"}
-        }),
+      final response = await Supabase.instance.client.functions.invoke(
+        'gemini-vision',
+        body: {
+          'task': 'search',
+          'imageBase64': base64Image,
+          'mimeType': 'image/jpeg',
+        },
       );
 
-      if (response.statusCode != 200) throw Exception('Gemini failed');
-
-      final data = jsonDecode(response.body);
-      final aiResult = jsonDecode(data['candidates'][0]['content']['parts'][0]['text']);
-      
+      if (response.status != 200) throw Exception('Image analysis failed: ${response.data}');
+      final aiResult = response.data as Map<String, dynamic>;
       String searchCategory = aiResult['category'] ?? '';
       String searchColor = aiResult['color'] ?? '';
       

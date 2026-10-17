@@ -2,8 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:yoaron_app/constants/categories.dart';
@@ -110,47 +108,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
     try {
       final imageBytes = await item.image.readAsBytes();
-      final base64Image = base64Encode(imageBytes);
-      final geminiKey = dotenv.env['GEMINI_API_KEY']!;
-
-      final response = await http.post(
-        Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=$geminiKey',
-        ),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          "contents": [
-            {
-              "parts": [
-                {
-                  "text":
-                      "Analyze this clothing item in Hungarian. Choose ONE category from: ${clothingCategories.join(', ')}. Return pure JSON: {'name': string, 'brand': string, 'category': string, 'price': number, 'color': string, 'pattern': string, 'condition': string (e.g., 'Új', 'Kiváló', 'Használt'), 'size': string}"
-                },
-                {
-                  "inlineData": {
-                    "mimeType": "image/jpeg",
-                    "data": base64Image,
-                  }
-                }
-              ]
-            }
-          ],
-          "generationConfig": {
-            "responseMimeType": "application/json",
-          }
-        }),
+      final result = await Supabase.instance.client.functions.invoke(
+        'gemini-vision',
+        body: {
+          'task': 'inventory',
+          'imageBase64': base64Encode(imageBytes),
+          'mimeType': 'image/jpeg',
+        },
       );
-
-      if (response.statusCode != 200) {
-        throw Exception('Gemini failed: ${response.body}');
-      }
-
-      final data = jsonDecode(response.body);
-      final aiResult = jsonDecode(
-        data['candidates'][0]['content']['parts'][0]['text'],
-      );
-
-      item.aiResult = aiResult;
+      item.aiResult = Map<String, dynamic>.from(result.data as Map);
     } catch (e) {
       _showSnackBar('AI Error on an image: $e', isError: true);
       // Even if it fails, mark as ready so user can manually fill it out

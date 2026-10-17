@@ -27,9 +27,6 @@ class YoaronApp extends StatelessWidget {
 
           final currentSession = Supabase.instance.client.auth.currentSession;
 
-          print("Session: $currentSession");
-          print("User: ${currentSession?.user.id}");
-
           if (currentSession != null) {
             // Logged IN -> Show the main camera/intake screen
             return const InventoryScreen();

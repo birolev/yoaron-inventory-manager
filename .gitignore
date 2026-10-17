@@ -46,3 +46,5 @@ app.*.map.json
 
 # Secret Environment Variables
 .env
+# Node.js dependencies
+node_modules/
