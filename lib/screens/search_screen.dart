@@ -21,6 +21,8 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isSearching = false;
   List<dynamic> _searchResults = [];
   Map<String, dynamic>? _aiCriteria; // Stores what the AI was looking for
+  String _selectedCategory = 'Minden';
+  String _selectedGender = 'Minden';
   String _selectedLocation = 'All locations';
   static const _locations = ['All locations', 'Csengery', 'Astoria'];
 
@@ -40,7 +42,10 @@ class _SearchScreenState extends State<SearchScreen> {
         });
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hiba: $e'), backgroundColor: Colors.red));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hiba: $e'), backgroundColor: Colors.red),
+        );
     }
   }
 
@@ -61,11 +66,17 @@ class _SearchScreenState extends State<SearchScreen> {
         },
       );
 
-      if (response.status != 200) throw Exception('Image analysis failed: ${response.data}');
+      if (response.status != 200)
+        throw Exception('Image analysis failed: ${response.data}');
       final aiResult = response.data as Map<String, dynamic>;
       String searchCategory = aiResult['category'] ?? '';
+      String searchGender = genderOptions.contains(aiResult['gender'])
+          ? aiResult['gender']
+          : genderOptions.contains(searchCategory)
+          ? searchCategory
+          : '';
       String searchColor = aiResult['color'] ?? '';
-      
+
       // Save criteria to show the user what the AI is looking for
       setState(() => _aiCriteria = aiResult);
 
@@ -80,12 +91,19 @@ class _SearchScreenState extends State<SearchScreen> {
         query = query.eq('location', _selectedLocation);
       }
 
-      // Apply filters if AI found them
-      if (clothingCategories.contains(searchCategory)) {
+      // A manually selected category takes precedence over the AI category.
+      if (_selectedCategory != 'Minden') {
+        query = query.eq('category', _selectedCategory);
+      } else if (clothingCategories.contains(searchCategory)) {
         query = query.eq('category', searchCategory);
       }
+      if (_selectedGender != 'Minden') {
+        query = query.eq('gender', _selectedGender);
+      } else if (genderOptions.contains(searchGender)) {
+        query = query.eq('gender', searchGender);
+      }
       if (searchColor.isNotEmpty) {
-        query = query.ilike('color', '%$searchColor%'); 
+        query = query.ilike('color', '%$searchColor%');
       }
 
       final results = await query;
@@ -94,33 +112,48 @@ class _SearchScreenState extends State<SearchScreen> {
         _searchResults = results;
         _isSearching = false;
       });
-
     } catch (e) {
       setState(() => _isSearching = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Keresési hiba: $e'), backgroundColor: Colors.red));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Keresési hiba: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
     }
   }
-  
+
   void _showItemDetails(Map<String, dynamic> item) {
-    
     showSafeBottomSheet(
       context: context,
-      child: Column( 
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(item['name'] ?? 'Ismeretlen Termék', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          Text(item['brand'] ?? 'Ismeretlen Márka', style: const TextStyle(fontSize: 16, color: Colors.grey)),
+          Text(
+            item['name'] ?? 'Ismeretlen Termék',
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
+          Text(
+            item['brand'] ?? 'Ismeretlen Márka',
+            style: const TextStyle(fontSize: 16, color: Colors.grey),
+          ),
           const Divider(height: 30),
-          
-              _buildDetailRow('Ár (Price):', '${item['price_est']} Ft', isHighlight: true),
-              _buildDetailRow('Kategória:', item['category'] ?? '-'),
-              _buildDetailRow('Location:', item['location'] ?? 'Csengery'),
-              _buildDetailRow('Méret (Size):', item['size'] ?? '-'),
-              _buildDetailRow('Szín (Color):', item['color'] ?? '-'),
-              _buildDetailRow('Minta (Pattern):', item['pattern'] ?? '-'),
-              _buildDetailRow('Állapot (Condition):', item['condition'] ?? '-'),
-          
+
+          _buildDetailRow(
+            'Ár (Price):',
+            '${item['price_est']} Ft',
+            isHighlight: true,
+          ),
+          _buildDetailRow('Kategória:', item['category'] ?? '-'),
+          _buildDetailRow('Nem / Gender:', item['gender'] ?? '-'),
+          _buildDetailRow('Location:', item['location'] ?? 'Csengery'),
+          _buildDetailRow('Méret (Size):', item['size'] ?? '-'),
+          _buildDetailRow('Szín (Color):', item['color'] ?? '-'),
+          _buildDetailRow('Minta (Pattern):', item['pattern'] ?? '-'),
+          _buildDetailRow('Állapot (Condition):', item['condition'] ?? '-'),
+
           const SizedBox(height: 25),
           SizedBox(
             width: double.infinity,
@@ -130,28 +163,43 @@ class _SearchScreenState extends State<SearchScreen> {
               label: const Text('Rendben (Got it)'),
               style: FilledButton.styleFrom(padding: const EdgeInsets.all(15)),
             ),
-          )
+          ),
         ],
       ),
     );
   }
-  
-  Widget _buildDetailRow(String label, String value, {bool isHighlight = false}) {
+
+  Widget _buildDetailRow(
+    String label,
+    String value, {
+    bool isHighlight = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 14)),
-          Text(value, style: TextStyle(
-            fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600,
-            fontSize: isHighlight ? 20 : 16,
-            color: isHighlight ? Colors.green[700] : Colors.black87,
-          )),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600,
+              fontSize: isHighlight ? 20 : 16,
+              color: isHighlight ? Colors.green[700] : Colors.black87,
+            ),
+          ),
         ],
       ),
     );
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -169,6 +217,60 @@ class _SearchScreenState extends State<SearchScreen> {
             child: Column(
               children: [
                 DropdownButtonFormField<String>(
+                  initialValue: _selectedCategory,
+                  decoration: const InputDecoration(
+                    labelText: 'Search category',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.category),
+                    isDense: true,
+                  ),
+                  items: filterCategories
+                      .map(
+                        (category) => DropdownMenuItem(
+                          value: category,
+                          child: Text(category),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _selectedCategory = value;
+                        _searchResults = [];
+                        _aiCriteria = null;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedGender,
+                  decoration: const InputDecoration(
+                    labelText: 'Search gender',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.people),
+                    isDense: true,
+                  ),
+                  items: ['Minden', ...genderOptions]
+                      .map(
+                        (gender) => DropdownMenuItem(
+                          value: gender,
+                          child: Text(gender),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _selectedGender = value;
+                        _searchResults = [];
+                        _aiCriteria = null;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
                   initialValue: _selectedLocation,
                   decoration: const InputDecoration(
                     labelText: 'Search location',
@@ -177,10 +279,12 @@ class _SearchScreenState extends State<SearchScreen> {
                     isDense: true,
                   ),
                   items: _locations
-                      .map((location) => DropdownMenuItem(
-                            value: location,
-                            child: Text(location),
-                          ))
+                      .map(
+                        (location) => DropdownMenuItem(
+                          value: location,
+                          child: Text(location),
+                        ),
+                      )
                       .toList(),
                   onChanged: (value) {
                     if (value != null) {
@@ -195,102 +299,185 @@ class _SearchScreenState extends State<SearchScreen> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                // Thumbnail Preview
-                GestureDetector(
-                  onTap: () => _pickImage(ImageSource.camera),
-                  child: Container(
-                    height: 100, width: 100,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey[400]!),
-                    ),
-                    child: _searchImage != null
-                        ? ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.file(_searchImage!, fit: BoxFit.cover))
-                        : const Icon(Icons.camera_alt, color: Colors.grey, size: 40),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                
-                // Search Button & Status
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (_searchImage != null && !_isSearching && _searchResults.isEmpty)
-                        FilledButton.icon(
-                          onPressed: _executeSearch,
-                          icon: const Icon(Icons.search),
-                          label: const Text('Keresés (Search)'),
+                    // Thumbnail Preview
+                    GestureDetector(
+                      onTap: () => _pickImage(ImageSource.camera),
+                      child: Container(
+                        height: 100,
+                        width: 100,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey[400]!),
                         ),
-                      if (_isSearching)
-                        const Row(children: [CircularProgressIndicator(), SizedBox(width: 10), Text("AI elemzés...")]),
-                      if (_aiCriteria != null) ...[
-                        const Text("AI Keresési szűrők:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
-                        Text("${_aiCriteria!['category']} | ${_aiCriteria!['color']} | ${_aiCriteria!['pattern']}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ]
-                    ],
-                  ),
-                )
+                        child: _searchImage != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.file(
+                                  _searchImage!,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.camera_alt,
+                                color: Colors.grey,
+                                size: 40,
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+
+                    // Search Button & Status
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_searchImage != null &&
+                              !_isSearching &&
+                              _searchResults.isEmpty)
+                            FilledButton.icon(
+                              onPressed: _executeSearch,
+                              icon: const Icon(Icons.search),
+                              label: const Text('Keresés (Search)'),
+                            ),
+                          if (_isSearching)
+                            const Row(
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(width: 10),
+                                Text("AI elemzés..."),
+                              ],
+                            ),
+                          if (_aiCriteria != null) ...[
+                            const Text(
+                              "AI Keresési szűrők:",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            Text(
+                              "${_aiCriteria!['category']} | ${_aiCriteria!['gender']} | ${_aiCriteria!['color']} | ${_aiCriteria!['pattern']}",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
-          
+
           // --- BOTTOM SECTION: RESULTS GRID ---
           Expanded(
             child: _searchResults.isEmpty
-              ? Center(
-                  child: Text(
-                    _searchImage == null ? 'Készíts egy fotót a kereséshez!' : 'Nincs találat. (No exact matches found)', 
-                    style: const TextStyle(color: Colors.grey)
+                ? Center(
+                    child: Text(
+                      _searchImage == null
+                          ? 'Készíts egy fotót a kereséshez!'
+                          : 'Nincs találat. (No exact matches found)',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
                   )
-                )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(10),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2, childAspectRatio: 0.7, crossAxisSpacing: 10, mainAxisSpacing: 10,
-                  ),
-                  itemCount: _searchResults.length,
-                  itemBuilder: (context, index) {
-                    final item = _searchResults[index];
-                    
-                    // --- CHANGED: WRAPPED IN INKWELL ---
-                    return InkWell(
-                      onTap: () => _showItemDetails(item), // Opens the details sheet!
-                      borderRadius: BorderRadius.circular(12),
-                      child: Card(
-                        clipBehavior: Clip.antiAlias,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 2,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Container(
-                                width: double.infinity, color: Colors.grey[200],
-                                child: item['image_url'] != null ? Image.network(item['image_url'], fit: BoxFit.cover) : const Icon(Icons.image_not_supported),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(item['brand'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
-                                  Text(item['location'] ?? 'Csengery', style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
-                                  Text(item['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  Text('${item['price_est']} Ft', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green[700])),
-                                ],
-                              ),
-                            ),
-                          ],
+                : GridView.builder(
+                    padding: const EdgeInsets.all(10),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 0.7,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
                         ),
-                      ),
-                    );
-                  },
-                ),
+                    itemCount: _searchResults.length,
+                    itemBuilder: (context, index) {
+                      final item = _searchResults[index];
+
+                      // --- CHANGED: WRAPPED IN INKWELL ---
+                      return InkWell(
+                        onTap: () =>
+                            _showItemDetails(item), // Opens the details sheet!
+                        borderRadius: BorderRadius.circular(12),
+                        child: Card(
+                          clipBehavior: Clip.antiAlias,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  width: double.infinity,
+                                  color: Colors.grey[200],
+                                  child: item['image_url'] != null
+                                      ? Image.network(
+                                          item['image_url'],
+                                          fit: BoxFit.cover,
+                                        )
+                                      : const Icon(Icons.image_not_supported),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item['brand'] ?? '',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    Text(
+                                      item['location'] ?? 'Csengery',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.blueGrey,
+                                      ),
+                                    ),
+                                    Text(
+                                      item['name'] ?? '',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      '${item['category'] ?? '-'} · ${item['gender'] ?? '-'}',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.blueGrey,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      '${item['price_est']} Ft',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: Colors.green[700],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

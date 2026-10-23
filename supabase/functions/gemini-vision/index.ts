@@ -5,10 +5,11 @@ const corsHeaders = {
 };
 
 const categories = [
-  "Poló", "Galléros", "Kötött pulcsi", "zipup", "farmer", "nadrág",
+  "Poló", "Galléros", "cable knit", "vékony kötött", "sleepwear", "zipup", "farmer", "nadrág",
   "dzseki", "hoodie", "quarter zip", "short", "jort", "öv", "sapka",
-  "mez", "cipő", "mellény", "ing", "női", "férfi", "other",
+  "mez", "cipő", "mellény", "ing", "other",
 ];
+const genders = ["női", "férfi"];
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -41,8 +42,8 @@ Deno.serve(async (request) => {
     }
 
     const prompt = task === "inventory"
-      ? `Analyze this clothing item in Hungarian. Choose ONE category from: ${categories.join(", ")}. Return a JSON object with name (string), brand (string), category (string), price (number), color (string), pattern (string), condition (string, e.g. 'Új', 'Kiváló', 'Használt'), and size (string).`
-      : `Analyze this clothing item. Identify its category (choose EXACTLY ONE from: ${categories.join(", ")}), its main color in Hungarian, and its pattern in Hungarian. Return a JSON object with category (string), color (string), and pattern (string).`;
+      ? `Analyze this clothing item in Hungarian. Choose ONE category from: ${categories.join(", ")}, and choose its gender from: ${genders.join(", ")}. Return a JSON object with name (string), brand (string), category (string), gender (string), price (number), color (string), pattern (string), condition (string, e.g. 'Új', 'Kiváló', 'Használt'), and size (string).`
+      : `Analyze this clothing item. Identify its category (choose EXACTLY ONE from: ${categories.join(", ")}) and gender (choose EXACTLY ONE from: ${genders.join(", ")}), its main color in Hungarian, and its pattern in Hungarian. Return a JSON object with category (string), gender (string), color (string), and pattern (string).`;
 
 
     const geminiStarted = performance.now();

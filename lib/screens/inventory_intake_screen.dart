@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yoaron_app/constants/categories.dart';
 import 'package:yoaron_app/models/batch_image_queue.dart';
 
@@ -32,10 +33,29 @@ class _InventoryScreenState extends State<InventoryScreen> {
   final TextEditingController _sizeController = TextEditingController();
   final TextEditingController _conditionController = TextEditingController();
 
-  String? _selectedCategory;
+  static const _lastUsedSizeKey = 'inventory_last_used_size';
+  String _lastUsedSize = '';
+  bool _sizePreferenceLoaded = false;
+
+  String? _selectedCategory = defaultClothingCategory;
+  String _selectedGender = defaultClothingGender;
   String _selectedLocation = 'Csengery';
 
   static const _locations = ['Csengery', 'Astoria'];
+
+  Future<void> _loadLastUsedSize() async {
+    if (_sizePreferenceLoaded) return;
+    final preferences = await SharedPreferences.getInstance();
+    _lastUsedSize = preferences.getString(_lastUsedSizeKey) ?? '';
+    _sizePreferenceLoaded = true;
+  }
+
+  void _rememberSize(String value) {
+    _lastUsedSize = value.trim();
+    SharedPreferences.getInstance().then((preferences) {
+      preferences.setString(_lastUsedSizeKey, _lastUsedSize);
+    });
+  }
 
   @override
   void dispose() {
@@ -53,6 +73,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   Future<void> _pickSingleImageCamera() async {
     try {
+      await _loadLastUsedSize();
       final XFile? pickedFile = await _picker.pickImage(
         source: ImageSource.camera,
         imageQuality: 70,
@@ -69,6 +90,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   Future<void> _pickGalleryImages() async {
     try {
+      await _loadLastUsedSize();
       final List<XFile> pickedFiles = await _picker.pickMultiImage(
         imageQuality: 70,
         maxWidth: 1000,
@@ -123,7 +145,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     } catch (e) {
       _showSnackBar('AI Error on an image: $e', isError: true);
       // Even if it fails, mark as ready so user can manually fill it out
-      item.aiResult = {}; 
+      item.aiResult = {};
     } finally {
       item.isAnalyzing = false;
       item.isReady = true;
@@ -132,7 +154,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
       if (mounted && _queue?.current == item) {
         _populateControllers(item);
       } else if (mounted) {
-        setState(() {}); // Silent rebuild to update background progress indicators if needed
+        setState(
+          () {},
+        ); // Silent rebuild to update background progress indicators if needed
       }
     }
   }
@@ -147,12 +171,22 @@ class _InventoryScreenState extends State<InventoryScreen> {
       _priceController.text = aiResult['price']?.toString() ?? "0";
       _colorController.text = aiResult['color'] ?? "";
       _patternController.text = aiResult['pattern'] ?? "";
-      _sizeController.text = aiResult['size'] ?? "";
+      final aiSize = aiResult['size']?.toString().trim() ?? '';
+      _sizeController.text = aiSize.isNotEmpty ? aiSize : _lastUsedSize;
+      if (aiSize.isNotEmpty) _rememberSize(aiSize);
       _conditionController.text = aiResult['condition'] ?? "";
 
-      _selectedCategory = clothingCategories.contains(aiResult['category'])
-          ? aiResult['category']
-          : clothingCategories.first;
+      final aiCategory = aiResult['category'];
+      final aiGender = aiResult['gender'];
+      // Accept responses from an older Edge Function until it is redeployed.
+      _selectedGender = genderOptions.contains(aiGender)
+          ? aiGender
+          : genderOptions.contains(aiCategory)
+          ? aiCategory
+          : defaultClothingGender;
+      _selectedCategory = clothingCategories.contains(aiCategory)
+          ? aiCategory
+          : defaultClothingCategory;
 
       _isEditing = true;
     });
@@ -182,6 +216,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         'brand': _brandController.text,
         'price_est': double.tryParse(_priceController.text) ?? 0.0,
         'category': _selectedCategory,
+        'gender': _selectedGender,
         'location': _selectedLocation,
         'image_url': imageUrl,
         'color': _colorController.text,
@@ -207,7 +242,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
     _patternController.clear();
     _sizeController.clear();
     _conditionController.clear();
-    _selectedCategory = null;
+    _selectedCategory = defaultClothingCategory;
+    _selectedGender = defaultClothingGender;
     _isEditing = false;
     _isUploading = false;
 
@@ -276,7 +312,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const InventoryListScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const InventoryListScreen(),
+                ),
               );
             },
           ),
@@ -293,12 +331,18 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 children: [
                   Text(
                     'Item ${_queue!.currentNumber} of ${_queue!.total}',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   TextButton.icon(
                     onPressed: _cancelEntireBatch,
                     icon: const Icon(Icons.cancel, color: Colors.red, size: 18),
-                    label: const Text('Cancel Batch', style: TextStyle(color: Colors.red)),
+                    label: const Text(
+                      'Cancel Batch',
+                      style: TextStyle(color: Colors.red),
+                    ),
                   ),
                 ],
               ),
@@ -320,11 +364,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
                           return const Center(
-                            child: Icon(Icons.broken_image, size: 60, color: Colors.grey),
+                            child: Icon(
+                              Icons.broken_image,
+                              size: 60,
+                              color: Colors.grey,
+                            ),
                           );
                         }
                         if (!snapshot.hasData) {
-                          return const Center(child: CircularProgressIndicator());
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
                         }
                         return ClipRRect(
                           borderRadius: BorderRadius.circular(12),
@@ -369,12 +419,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
               ),
 
             // Background Processing / Uploading Indicators
-            if (_isUploading || (currentItem != null && currentItem.isAnalyzing))
+            if (_isUploading ||
+                (currentItem != null && currentItem.isAnalyzing))
               Column(
                 children: [
                   const CircularProgressIndicator(),
                   const SizedBox(height: 10),
-                  Text(_isUploading ? "Uploading to inventory..." : "AI is analyzing this item..."),
+                  Text(
+                    _isUploading
+                        ? "Uploading to inventory..."
+                        : "AI is analyzing this item...",
+                  ),
                 ],
               ),
 
@@ -388,6 +443,27 @@ class _InventoryScreenState extends State<InventoryScreen> {
               ),
 
               const SizedBox(height: 15),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedGender,
+                decoration: const InputDecoration(
+                  labelText: 'Gender (Női/Férfi)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.people),
+                ),
+                items: genderOptions
+                    .map(
+                      (gender) =>
+                          DropdownMenuItem(value: gender, child: Text(gender)),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedGender = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+
               TextField(
                 controller: _nameController,
                 decoration: const InputDecoration(
@@ -421,6 +497,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
               TextField(
                 controller: _sizeController,
+                onChanged: _rememberSize,
                 decoration: const InputDecoration(
                   labelText: 'Méret (Size)',
                   border: OutlineInputBorder(),
@@ -467,10 +544,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   prefixIcon: Icon(Icons.category),
                 ),
                 items: clothingCategories
-                    .map((category) => DropdownMenuItem(
-                          value: category,
-                          child: Text(category),
-                        ))
+                    .map(
+                      (category) => DropdownMenuItem(
+                        value: category,
+                        child: Text(category),
+                      ),
+                    )
                     .toList(),
                 onChanged: (val) => setState(() => _selectedCategory = val),
               ),
@@ -485,10 +564,12 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   prefixIcon: Icon(Icons.store),
                 ),
                 items: _locations
-                    .map((location) => DropdownMenuItem(
-                          value: location,
-                          child: Text(location),
-                        ))
+                    .map(
+                      (location) => DropdownMenuItem(
+                        value: location,
+                        child: Text(location),
+                      ),
+                    )
                     .toList(),
                 onChanged: (value) {
                   if (value != null) {

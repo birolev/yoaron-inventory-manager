@@ -1,7 +1,9 @@
 const List<String> clothingCategories = [
   'Poló',
   'Galléros',
-  'Kötött pulcsi',
+  'cable knit',
+  'vékony kötött',
+  'sleepwear',
   'zipup',
   'farmer',
   'nadrág',
@@ -16,12 +18,12 @@ const List<String> clothingCategories = [
   'cipő',
   'mellény',
   'ing',
-  'női',
-  'férfi',
   'other',
 ];
 
-const List<String> filterCategories = [
-  'Minden',
-  ...clothingCategories,
-];
+const List<String> genderOptions = ['női', 'férfi'];
+
+const String defaultClothingCategory = 'other';
+const String defaultClothingGender = 'férfi';
+
+const List<String> filterCategories = ['Minden', ...clothingCategories];
