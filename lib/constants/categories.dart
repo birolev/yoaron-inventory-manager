@@ -10,6 +10,14 @@ const List<String> clothingCategories = [
   'quarter zip',
   'short',
   'jort',
+  'öv',
+  'sapka',
+  'mez',
+  'cipő',
+  'mellény',
+  'ing',
+  'női',
+  'férfi',
   'other',
 ];
 

@@ -5,8 +5,9 @@ const corsHeaders = {
 };
 
 const categories = [
-  "Pol\u00c3\u00b3", "Gall\u00c3\u00a9ros", "K\u00c3\u00b6t\u00c3\u00b6tt pulcsi", "zipup", "farmer", "nadr\u00c3\u00a1g",
-  "dzseki", "hoodie", "quarter zip", "short", "jort", "other",
+  "Poló", "Galléros", "Kötött pulcsi", "zipup", "farmer", "nadrág",
+  "dzseki", "hoodie", "quarter zip", "short", "jort", "öv", "sapka",
+  "mez", "cipő", "mellény", "ing", "női", "férfi", "other",
 ];
 
 function jsonResponse(body: unknown, status = 200) {

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:yoaron_app/constants/categories.dart';
 
 import 'package:yoaron_app/widgets/safe_bottom_sheet.dart';
 
@@ -22,11 +23,6 @@ class _SearchScreenState extends State<SearchScreen> {
   Map<String, dynamic>? _aiCriteria; // Stores what the AI was looking for
   String _selectedLocation = 'All locations';
   static const _locations = ['All locations', 'Csengery', 'Astoria'];
-
-  final List<String> _myCategories = [
-    'Poló', 'Galléros', 'Kötött pulcsi', 'zipup', 'farmer', 
-    'nadrág', 'dzseki', 'hoodie', 'quarter zip', 'short', 'jort', 'other'
-  ];
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -85,7 +81,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
 
       // Apply filters if AI found them
-      if (_myCategories.contains(searchCategory)) {
+      if (clothingCategories.contains(searchCategory)) {
         query = query.eq('category', searchCategory);
       }
       if (searchColor.isNotEmpty) {
