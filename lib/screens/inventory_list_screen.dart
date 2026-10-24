@@ -154,6 +154,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     final sizeCtrl = TextEditingController(text: item['size']);
 
     bool itemIsSold = item['is_sold'] ?? false;
+    final imageUrl = item['image_url'] as String?;
 
     final editCategories = clothingCategories;
 
@@ -174,6 +175,36 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (imageUrl != null && imageUrl.isNotEmpty) ...[
+                GestureDetector(
+                  onTap: () => _showFullImage(imageUrl),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      height: 300,
+                      width: double.infinity,
+                      color: Colors.black12,
+                      child: Image.network(
+                        imageUrl,
+                        fit: BoxFit.contain,
+                        loadingBuilder: (context, child, progress) =>
+                            progress == null
+                            ? child
+                            : const Center(child: CircularProgressIndicator()),
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Center(
+                              child: Icon(
+                                Icons.broken_image,
+                                size: 48,
+                                color: Colors.grey,
+                              ),
+                            ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               const Text(
                 'Termék Szerkesztése',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -345,6 +376,32 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _showFullImage(String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        child: SizedBox(
+          width: MediaQuery.sizeOf(dialogContext).width * 0.9,
+          height: MediaQuery.sizeOf(dialogContext).height * 0.8,
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4,
+            child: Image.network(
+              imageUrl,
+              fit: BoxFit.contain,
+              loadingBuilder: (context, child, progress) => progress == null
+                  ? child
+                  : const Center(child: CircularProgressIndicator()),
+              errorBuilder: (context, error, stackTrace) => const Center(
+                child: Icon(Icons.broken_image, size: 48, color: Colors.grey),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
