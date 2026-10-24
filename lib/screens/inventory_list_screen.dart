@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:yoaron_app/constants/categories.dart';
 
+import 'sales_screen.dart';
 import '../widgets/safe_bottom_sheet.dart';
 
 class InventoryListScreen extends StatefulWidget {
@@ -14,10 +15,13 @@ class InventoryListScreen extends StatefulWidget {
 class _InventoryListScreenState extends State<InventoryListScreen> {
   List<dynamic> _inventory = [];
   bool _isLoading = true;
+  bool _filtersExpanded = true;
 
   String _selectedFilter = 'Minden';
   String _selectedGenderFilter = 'Minden';
   String _selectedLocationFilter = 'All locations';
+  String _selectedSizeFilter = '';
+  final TextEditingController _sizeFilterController = TextEditingController();
   static const _locations = ['Csengery', 'Astoria'];
   String _sortColumn = 'created_at';
   bool _sortAscending = false;
@@ -42,6 +46,9 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       if (_selectedLocationFilter != 'All locations') {
         query = query.eq('location', _selectedLocationFilter);
       }
+      if (_selectedSizeFilter.trim().isNotEmpty) {
+        query = query.ilike('size', _selectedSizeFilter.trim());
+      }
 
       final data = await query.order(_sortColumn, ascending: _sortAscending);
 
@@ -60,6 +67,72 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         );
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _sizeFilterController.dispose();
+    super.dispose();
+  }
+
+  Future<String?> _chooseCategory() async {
+    final controller = TextEditingController();
+    var matchingCategories = filterCategories;
+    final selection = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Search category'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: MediaQuery.sizeOf(context).height * 0.6,
+            child: Column(
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'Type a category, e.g. hoo',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) {
+                    setDialogState(() {
+                      matchingCategories = filterCategories
+                          .where(
+                            (category) => category.toLowerCase().contains(
+                              value.trim().toLowerCase(),
+                            ),
+                          )
+                          .toList();
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: matchingCategories.isEmpty
+                      ? const Center(child: Text('No matching categories'))
+                      : ListView.builder(
+                          itemCount: matchingCategories.length,
+                          itemBuilder: (context, index) {
+                            final category = matchingCategories[index];
+                            return ListTile(
+                              title: Text(category),
+                              selected: category == _selectedFilter,
+                              onTap: () =>
+                                  Navigator.pop(dialogContext, category),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+    return selection;
   }
 
   Future<void> _updateItem(
@@ -415,6 +488,17 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         title: const Text('Készlet (Inventory)'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          IconButton(
+            tooltip: 'Record sale',
+            icon: const Icon(Icons.point_of_sale),
+            onPressed: () async {
+              final recorded = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (_) => const SalesScreen()),
+              );
+              if (recorded == true) _fetchInventory();
+            },
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.sort),
             tooltip: 'Rendezés (Sort)',
@@ -463,73 +547,155 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         children: [
           // --- THE FILTER MENU ---
           Container(
-            height: 168,
             color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
-                  height: 56,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    itemCount: filterCategories.length,
-                    itemBuilder: (context, index) {
-                      final category = filterCategories[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8.0),
-                        child: FilterChip(
-                          label: Text(category),
-                          selected: category == _selectedFilter,
-                          onSelected: (_) {
-                            setState(() => _selectedFilter = category);
-                            _fetchInventory();
-                          },
-                        ),
-                      );
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Inventory filters',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () =>
+                          setState(() => _filtersExpanded = !_filtersExpanded),
+                      icon: Icon(
+                        _filtersExpanded ? Icons.expand_less : Icons.tune,
+                      ),
+                      label: Text(_filtersExpanded ? 'Hide' : 'Edit'),
+                    ),
+                  ],
+                ),
+                if (_filtersExpanded) ...[
+                  InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () async {
+                      final category = await _chooseCategory();
+                      if (category == null || !mounted) return;
+                      setState(() => _selectedFilter = category);
+                      _fetchInventory();
                     },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Category',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.category),
+                        suffixIcon: Icon(Icons.arrow_drop_down),
+                        isDense: true,
+                      ),
+                      child: Text(_selectedFilter),
+                    ),
                   ),
-                ),
-                SizedBox(
-                  height: 56,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    children: ['Minden', ...genderOptions].map((gender) {
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(gender),
-                          selected: gender == _selectedGenderFilter,
-                          onSelected: (_) {
-                            setState(() => _selectedGenderFilter = gender);
-                            _fetchInventory();
-                          },
+                  SizedBox(
+                    height: 56,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: ['Minden', ...genderOptions].map((gender) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(gender),
+                            selected: gender == _selectedGenderFilter,
+                            onSelected: (_) {
+                              setState(() => _selectedGenderFilter = gender);
+                              _fetchInventory();
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 48,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: ['All locations', ..._locations].map((
+                        location,
+                      ) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(location),
+                            selected: location == _selectedLocationFilter,
+                            onSelected: (_) {
+                              setState(
+                                () => _selectedLocationFilter = location,
+                              );
+                              _fetchInventory();
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 56,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: TextField(
+                        controller: _sizeFilterController,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (value) {
+                          setState(() => _selectedSizeFilter = value.trim());
+                          _fetchInventory();
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Filter by size',
+                          hintText: 'e.g. M, 32, 42',
+                          prefixIcon: const Icon(Icons.straighten),
+                          suffixIcon: IconButton(
+                            tooltip: 'Apply size filter',
+                            icon: const Icon(Icons.search),
+                            onPressed: () {
+                              setState(
+                                () => _selectedSizeFilter =
+                                    _sizeFilterController.text.trim(),
+                              );
+                              _fetchInventory();
+                            },
+                          ),
+                          border: const OutlineInputBorder(),
+                          isDense: true,
                         ),
-                      );
-                    }).toList(),
+                      ),
+                    ),
                   ),
-                ),
-                SizedBox(
-                  height: 48,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    children: ['All locations', ..._locations].map((location) {
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(location),
-                          selected: location == _selectedLocationFilter,
-                          onSelected: (_) {
-                            setState(() => _selectedLocationFilter = location);
-                            _fetchInventory();
-                          },
+                ] else
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Category: $_selectedFilter · Gender: $_selectedGenderFilter · '
+                        'Location: $_selectedLocationFilter'
+                        '${_selectedSizeFilter.isEmpty ? '' : ' · Size: $_selectedSizeFilter'}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.blueGrey,
                         ),
-                      );
-                    }).toList(),
+                      ),
+                    ),
                   ),
-                ),
               ],
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Showing ${_inventory.length} items',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+              ),
             ),
           ),
 

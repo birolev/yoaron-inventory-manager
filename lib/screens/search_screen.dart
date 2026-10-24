@@ -19,12 +19,101 @@ class _SearchScreenState extends State<SearchScreen> {
   File? _searchImage;
   final ImagePicker _picker = ImagePicker();
   bool _isSearching = false;
+  bool _usedFallback = false;
+  bool _filtersExpanded = true;
   List<dynamic> _searchResults = [];
   Map<String, dynamic>? _aiCriteria; // Stores what the AI was looking for
   String _selectedCategory = 'Minden';
   String _selectedGender = 'Minden';
   String _selectedLocation = 'All locations';
+  String _selectedSize = '';
+  String _selectedColor = '';
+  String _selectedPattern = '';
+  String _selectedName = '';
+  String _selectedBrand = '';
+  String _selectedCondition = '';
+  bool _categoryManuallyChanged = false;
+  bool _genderManuallyChanged = false;
+  final TextEditingController _colorController = TextEditingController();
+  final TextEditingController _patternController = TextEditingController();
+  final TextEditingController _sizeController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _brandController = TextEditingController();
+  final TextEditingController _conditionController = TextEditingController();
   static const _locations = ['All locations', 'Csengery', 'Astoria'];
+
+  @override
+  void dispose() {
+    _colorController.dispose();
+    _patternController.dispose();
+    _sizeController.dispose();
+    _nameController.dispose();
+    _brandController.dispose();
+    _conditionController.dispose();
+    super.dispose();
+  }
+
+  Future<String?> _chooseCategory() async {
+    final controller = TextEditingController();
+    var matchingCategories = filterCategories;
+
+    final selection = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Search category'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: MediaQuery.sizeOf(context).height * 0.6,
+            child: Column(
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'Type a category, e.g. hoo',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) {
+                    setDialogState(() {
+                      matchingCategories = filterCategories
+                          .where(
+                            (category) => category.toLowerCase().contains(
+                              value.trim().toLowerCase(),
+                            ),
+                          )
+                          .toList();
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: matchingCategories.isEmpty
+                      ? const Center(child: Text('No matching categories'))
+                      : ListView.builder(
+                          itemCount: matchingCategories.length,
+                          itemBuilder: (context, index) {
+                            final category = matchingCategories[index];
+                            return ListTile(
+                              title: Text(category),
+                              selected: category == _selectedCategory,
+                              onTap: () =>
+                                  Navigator.pop(dialogContext, category),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    controller.dispose();
+    return selection;
+  }
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -39,22 +128,41 @@ class _SearchScreenState extends State<SearchScreen> {
           _searchImage = File(pickedFile.path);
           _searchResults = []; // Clear old results
           _aiCriteria = null;
+          _usedFallback = false;
+          _selectedCategory = 'Minden';
+          _selectedGender = 'Minden';
+          _selectedColor = '';
+          _selectedPattern = '';
+          _selectedName = '';
+          _selectedBrand = '';
+          _selectedCondition = '';
+          _categoryManuallyChanged = false;
+          _genderManuallyChanged = false;
+          _colorController.clear();
+          _patternController.clear();
+          _nameController.clear();
+          _brandController.clear();
+          _conditionController.clear();
         });
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Hiba: $e'), backgroundColor: Colors.red),
         );
+      }
     }
   }
 
   Future<void> _executeSearch() async {
-    if (_searchImage == null) return;
-    setState(() => _isSearching = true);
+    if (_searchImage == null || _isSearching) return;
+    if (_aiCriteria != null) {
+      await _searchInventory();
+      return;
+    }
 
+    setState(() => _isSearching = true);
     try {
-      // 1. Convert Image for Gemini
       final imageBytes = await _searchImage!.readAsBytes();
       final base64Image = base64Encode(imageBytes);
       final response = await Supabase.instance.client.functions.invoke(
@@ -66,62 +174,158 @@ class _SearchScreenState extends State<SearchScreen> {
         },
       );
 
-      if (response.status != 200)
+      if (response.status != 200) {
         throw Exception('Image analysis failed: ${response.data}');
-      final aiResult = response.data as Map<String, dynamic>;
-      String searchCategory = aiResult['category'] ?? '';
-      String searchGender = genderOptions.contains(aiResult['gender'])
-          ? aiResult['gender']
-          : genderOptions.contains(searchCategory)
-          ? searchCategory
-          : '';
-      String searchColor = aiResult['color'] ?? '';
-
-      // Save criteria to show the user what the AI is looking for
-      setState(() => _aiCriteria = aiResult);
-
-      // 3. Query Supabase
-      // look for unsold items that match the category
-      var query = Supabase.instance.client
-          .from('inventory')
-          .select()
-          .eq('is_sold', false); // Only search items currently in the store
-
-      if (_selectedLocation != 'All locations') {
-        query = query.eq('location', _selectedLocation);
       }
+      final aiResult = Map<String, dynamic>.from(response.data as Map);
+      final category = _normalizeOption(
+        aiResult['category'],
+        clothingCategories,
+      );
+      final aiGender = _normalizeGender(aiResult['gender']);
+      final gender = aiGender.isNotEmpty
+          ? aiGender
+          : _normalizeGender(aiResult['category']);
+      final color = aiResult['color']?.toString() ?? '';
+      final pattern = aiResult['pattern']?.toString() ?? '';
+      final brand = aiResult['brand']?.toString() ?? '';
 
-      // A manually selected category takes precedence over the AI category.
-      if (_selectedCategory != 'Minden') {
-        query = query.eq('category', _selectedCategory);
-      } else if (clothingCategories.contains(searchCategory)) {
-        query = query.eq('category', searchCategory);
-      }
-      if (_selectedGender != 'Minden') {
-        query = query.eq('gender', _selectedGender);
-      } else if (genderOptions.contains(searchGender)) {
-        query = query.eq('gender', searchGender);
-      }
-      if (searchColor.isNotEmpty) {
-        query = query.ilike('color', '%$searchColor%');
-      }
-
-      final results = await query;
-
+      if (!mounted) return;
       setState(() {
-        _searchResults = results;
+        _aiCriteria = aiResult;
+        if (!_categoryManuallyChanged) {
+          _selectedCategory = category.isEmpty ? 'Minden' : category;
+        }
+        if (!_genderManuallyChanged) {
+          _selectedGender = genderOptions.contains(gender) ? gender : 'Minden';
+        }
+        _selectedColor = color;
+        _selectedPattern = pattern;
+        _selectedBrand = brand;
+        _colorController.text = color;
+        _patternController.text = pattern;
+        _brandController.text = brand;
+        // Let the database search start after analysis has completed.
         _isSearching = false;
       });
+      await _searchInventory();
     } catch (e) {
-      setState(() => _isSearching = false);
-      if (mounted)
+      if (mounted) setState(() => _isSearching = false);
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Keresési hiba: $e'),
             backgroundColor: Colors.red,
           ),
         );
+      }
     }
+  }
+
+  String _normalizeOption(dynamic value, Iterable<String> options) {
+    final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) return '';
+    for (final option in options) {
+      if (option.toLowerCase() == normalized) return option;
+    }
+    return '';
+  }
+
+  String _normalizeGender(dynamic value) {
+    final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) return '';
+    final matchingOption = _normalizeOption(normalized, genderOptions);
+    if (matchingOption.isNotEmpty) return matchingOption;
+    if (const {'female', 'woman', 'women'}.contains(normalized)) return 'női';
+    if (const {'male', 'man', 'men'}.contains(normalized)) return 'férfi';
+    return '';
+  }
+
+  Future<void> _searchInventory() async {
+    if (_searchImage == null || _isSearching) return;
+    setState(() {
+      _isSearching = true;
+      _usedFallback = false;
+    });
+    try {
+      var results = await _runInventoryQuery();
+      var usedFallback = false;
+      if (results.isEmpty) {
+        // Retry broadly, retaining only the main category, location, and a
+        // known or manually entered brand.
+        if (!mounted) return;
+        setState(() {
+          _selectedGender = 'Minden';
+          _selectedSize = '';
+          _selectedColor = '';
+          _selectedPattern = '';
+          _selectedName = '';
+          _selectedCondition = '';
+          _sizeController.clear();
+          _colorController.clear();
+          _patternController.clear();
+          _nameController.clear();
+          _conditionController.clear();
+        });
+        results = await _runInventoryQuery(fallback: true);
+        usedFallback = true;
+      }
+      if (!mounted) return;
+      setState(() {
+        _searchResults = results;
+        _usedFallback = usedFallback;
+        _isSearching = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _isSearching = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Keresési hiba: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<List<dynamic>> _runInventoryQuery({bool fallback = false}) async {
+    var query = Supabase.instance.client
+        .from('inventory')
+        .select()
+        .eq('is_sold', false);
+
+    if (_selectedLocation != 'All locations') {
+      query = query.eq('location', _selectedLocation);
+    }
+    if (clothingCategories.contains(_selectedCategory)) {
+      query = query.eq('category', _selectedCategory);
+    }
+    if (_selectedBrand.trim().isNotEmpty) {
+      query = query.ilike('brand', '%${_selectedBrand.trim()}%');
+    }
+    if (!fallback) {
+      if (_selectedSize.trim().isNotEmpty) {
+        query = query.ilike('size', _selectedSize.trim());
+      }
+      if (genderOptions.contains(_selectedGender)) {
+        query = query.eq('gender', _selectedGender);
+      }
+      if (_selectedColor.trim().isNotEmpty) {
+        query = query.ilike('color', '%${_selectedColor.trim()}%');
+      }
+      if (_selectedPattern.trim().isNotEmpty) {
+        query = query.ilike('pattern', '%${_selectedPattern.trim()}%');
+      }
+      if (_selectedName.trim().isNotEmpty) {
+        query = query.ilike('name', '%${_selectedName.trim()}%');
+      }
+      if (_selectedCondition.trim().isNotEmpty) {
+        query = query.ilike('condition', '%${_selectedCondition.trim()}%');
+      }
+    }
+
+    return await query;
   }
 
   void _showItemDetails(Map<String, dynamic> item) {
@@ -216,87 +420,237 @@ class _SearchScreenState extends State<SearchScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedCategory,
-                  decoration: const InputDecoration(
-                    labelText: 'Search category',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.category),
-                    isDense: true,
-                  ),
-                  items: filterCategories
-                      .map(
-                        (category) => DropdownMenuItem(
-                          value: category,
-                          child: Text(category),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Search filters',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () =>
+                          setState(() => _filtersExpanded = !_filtersExpanded),
+                      icon: Icon(
+                        _filtersExpanded ? Icons.expand_less : Icons.tune,
+                      ),
+                      label: Text(_filtersExpanded ? 'Hide' : 'Edit'),
+                    ),
+                  ],
+                ),
+                if (_filtersExpanded) ...[
+                  InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () async {
+                      final value = await _chooseCategory();
+                      if (value == null || !mounted) return;
                       setState(() {
                         _selectedCategory = value;
+                        _categoryManuallyChanged = true;
                         _searchResults = [];
-                        _aiCriteria = null;
                       });
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedGender,
-                  decoration: const InputDecoration(
-                    labelText: 'Search gender',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.people),
-                    isDense: true,
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Search category',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.category),
+                        suffixIcon: Icon(Icons.arrow_drop_down),
+                        isDense: true,
+                      ),
+                      child: Text(_selectedCategory),
+                    ),
                   ),
-                  items: ['Minden', ...genderOptions]
-                      .map(
-                        (gender) => DropdownMenuItem(
-                          value: gender,
-                          child: Text(gender),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        _selectedGender = value;
-                        _searchResults = [];
-                        _aiCriteria = null;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedLocation,
-                  decoration: const InputDecoration(
-                    labelText: 'Search location',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.store),
-                    isDense: true,
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(_selectedGender),
+                    initialValue: _selectedGender,
+                    decoration: const InputDecoration(
+                      labelText: 'Search gender',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.people),
+                      isDense: true,
+                    ),
+                    items: ['Minden', ...genderOptions]
+                        .map(
+                          (gender) => DropdownMenuItem(
+                            value: gender,
+                            child: Text(gender),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _selectedGender = value;
+                          _genderManuallyChanged = true;
+                          _searchResults = [];
+                        });
+                      }
+                    },
                   ),
-                  items: _locations
-                      .map(
-                        (location) => DropdownMenuItem(
-                          value: location,
-                          child: Text(location),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedLocation,
+                    decoration: const InputDecoration(
+                      labelText: 'Search location',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.store),
+                      isDense: true,
+                    ),
+                    items: _locations
+                        .map(
+                          (location) => DropdownMenuItem(
+                            value: location,
+                            child: Text(location),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _selectedLocation = value;
+                          _searchResults = [];
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _sizeController,
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) {
                       setState(() {
-                        _selectedLocation = value;
+                        _selectedSize = value;
                         _searchResults = [];
-                        _aiCriteria = null;
                       });
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
+                    },
+                    onSubmitted: (_) {
+                      if (_searchImage != null) _executeSearch();
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'Search size',
+                      hintText: 'e.g. M, 32, 42',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.straighten),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _colorController,
+                          textInputAction: TextInputAction.next,
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedColor = value;
+                              _searchResults = [];
+                            });
+                          },
+                          decoration: const InputDecoration(
+                            labelText: 'Search color',
+                            prefixIcon: Icon(Icons.palette_outlined),
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _patternController,
+                          textInputAction: TextInputAction.search,
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedPattern = value;
+                              _searchResults = [];
+                            });
+                          },
+                          onSubmitted: (_) {
+                            if (_aiCriteria != null) _searchInventory();
+                          },
+                          decoration: const InputDecoration(
+                            labelText: 'Pattern',
+                            prefixIcon: Icon(Icons.texture),
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('More filters: name, brand, condition'),
+                    children: [
+                      TextField(
+                        controller: _nameController,
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedName = value;
+                            _searchResults = [];
+                          });
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Name',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _brandController,
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedBrand = value;
+                            _searchResults = [];
+                          });
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Brand',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _conditionController,
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedCondition = value;
+                            _searchResults = [];
+                          });
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Condition',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ] else
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Category: $_selectedCategory · Gender: $_selectedGender · '
+                        'Location: $_selectedLocation'
+                        '${_selectedSize.trim().isEmpty ? '' : ' · Size: ${_selectedSize.trim()}'}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.blueGrey,
+                        ),
+                      ),
+                    ),
+                  ),
                 Row(
                   children: [
                     // Thumbnail Preview
@@ -338,14 +692,27 @@ class _SearchScreenState extends State<SearchScreen> {
                             FilledButton.icon(
                               onPressed: _executeSearch,
                               icon: const Icon(Icons.search),
-                              label: const Text('Keresés (Search)'),
+                              label: Text(
+                                _aiCriteria == null
+                                    ? 'Analyze image & search'
+                                    : 'Search inventory',
+                              ),
                             ),
+                          OutlinedButton.icon(
+                            onPressed: () => _pickImage(ImageSource.gallery),
+                            icon: const Icon(Icons.photo_library_outlined),
+                            label: const Text('Choose from phone'),
+                          ),
                           if (_isSearching)
-                            const Row(
+                            Row(
                               children: [
-                                CircularProgressIndicator(),
-                                SizedBox(width: 10),
-                                Text("AI elemzés..."),
+                                const CircularProgressIndicator(),
+                                const SizedBox(width: 10),
+                                Text(
+                                  _aiCriteria == null
+                                      ? 'AI elemzés...'
+                                      : 'Keresés...',
+                                ),
                               ],
                             ),
                           if (_aiCriteria != null) ...[
@@ -380,6 +747,8 @@ class _SearchScreenState extends State<SearchScreen> {
                     child: Text(
                       _searchImage == null
                           ? 'Készíts egy fotót a kereséshez!'
+                          : _usedFallback
+                          ? 'No matches found, including the broader search.'
                           : 'Nincs találat. (No exact matches found)',
                       style: const TextStyle(color: Colors.grey),
                     ),
