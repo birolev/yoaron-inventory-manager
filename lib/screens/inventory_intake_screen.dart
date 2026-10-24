@@ -10,6 +10,7 @@ import 'package:yoaron_app/models/batch_image_queue.dart';
 
 import 'inventory_list_screen.dart';
 import 'search_screen.dart';
+import 'sales_dashboard_screen.dart';
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
@@ -24,6 +25,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   bool _isUploading = false; // Used for final Supabase upload
   bool _isEditing = false;
+  bool _hasSalesDashboardAccess = false;
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _brandController = TextEditingController();
@@ -40,6 +42,33 @@ class _InventoryScreenState extends State<InventoryScreen> {
   String? _selectedCategory = defaultClothingCategory;
   String _selectedGender = defaultClothingGender;
   String _selectedLocation = 'Csengery';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadManagerRole();
+  }
+
+  Future<void> _loadManagerRole() async {
+    try {
+      final client = Supabase.instance.client;
+      final manager = await client.rpc(
+        'has_app_role',
+        params: {'p_role': 'manager'},
+      );
+      final admin = await client.rpc(
+        'has_app_role',
+        params: {'p_role': 'admin'},
+      );
+      if (mounted) {
+        setState(
+          () => _hasSalesDashboardAccess = manager == true || admin == true,
+        );
+      }
+    } catch (_) {
+      if (mounted) setState(() => _hasSalesDashboardAccess = false);
+    }
+  }
 
   static const _locations = ['Csengery', 'Astoria'];
 
@@ -297,6 +326,19 @@ class _InventoryScreenState extends State<InventoryScreen> {
         title: const Text('Inventory Manager'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          if (_hasSalesDashboardAccess)
+            IconButton(
+              icon: const Icon(Icons.bar_chart, size: 28),
+              tooltip: 'Sales dashboard',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SalesDashboardScreen(),
+                  ),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.image_search, size: 30),
             tooltip: 'Keresés (Search)',
