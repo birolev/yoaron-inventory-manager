@@ -155,7 +155,11 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _executeSearch() async {
-    if (_searchImage == null || _isSearching) return;
+    if (_isSearching) return;
+    if (_searchImage == null) {
+      await _searchInventory();
+      return;
+    }
     if (_aiCriteria != null) {
       await _searchInventory();
       return;
@@ -242,7 +246,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _searchInventory() async {
-    if (_searchImage == null || _isSearching) return;
+    if (_isSearching) return;
     setState(() {
       _isSearching = true;
       _usedFallback = false;
@@ -408,7 +412,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AI Kereső (Reverse Search)'),
+        title: const Text('Keresés'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       backgroundColor: Colors.grey[100],
@@ -526,7 +530,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       });
                     },
                     onSubmitted: (_) {
-                      if (_searchImage != null) _executeSearch();
+                      _searchInventory();
                     },
                     decoration: const InputDecoration(
                       labelText: 'Search size',
@@ -569,7 +573,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             });
                           },
                           onSubmitted: (_) {
-                            if (_aiCriteria != null) _searchInventory();
+                            _searchInventory();
                           },
                           decoration: const InputDecoration(
                             labelText: 'Pattern',
@@ -686,14 +690,16 @@ class _SearchScreenState extends State<SearchScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (_searchImage != null &&
-                              !_isSearching &&
-                              _searchResults.isEmpty)
+                          if (!_isSearching && _searchResults.isEmpty)
                             FilledButton.icon(
-                              onPressed: _executeSearch,
+                              onPressed: _searchImage == null
+                                  ? _searchInventory
+                                  : _executeSearch,
                               icon: const Icon(Icons.search),
                               label: Text(
-                                _aiCriteria == null
+                                _searchImage == null
+                                    ? 'Search inventory'
+                                    : _aiCriteria == null
                                     ? 'Analyze image & search'
                                     : 'Search inventory',
                               ),
@@ -746,7 +752,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 ? Center(
                     child: Text(
                       _searchImage == null
-                          ? 'Készíts egy fotót a kereséshez!'
+                          ? 'Choose filters, then search inventory.'
                           : _usedFallback
                           ? 'No matches found, including the broader search.'
                           : 'Nincs találat. (No exact matches found)',

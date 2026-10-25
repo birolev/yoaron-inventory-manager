@@ -5,9 +5,10 @@ const corsHeaders = {
 };
 
 const categories = [
-  "Poló", "Galléros", "cable knit", "vékony kötött", "sleepwear", "zipup", "farmer", "nadrág",
+  "Póló", "Galléros", "cable knit", "vékony kötött", "sleepwear", "zipup", "farmer", "nadrág",
   "dzseki", "hoodie", "quarter zip", "short", "jort", "öv", "sapka",
-  "mez", "cipő", "mellény", "ing", "other",
+  "mez", "cipő", "mellény", "ing", "crewneck", "kabát", "szoknya", "hosszúujjú",
+  "melegítő", "sál", "táska", "other",
 ];
 const genders = ["női", "férfi"];
 

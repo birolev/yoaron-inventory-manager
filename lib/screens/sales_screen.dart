@@ -50,12 +50,20 @@ class _SalesScreenState extends State<SalesScreen> {
   final TextEditingController _finalPriceController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _sizeFilterController = TextEditingController();
+  final TextEditingController _manualSearchController = TextEditingController();
+  final List<Map<String, dynamic>> _manualResults = [];
 
   int _currentPhotoIndex = 0;
   bool _isCheckout = false;
   bool _isSaving = false;
   bool _syncingPrices = false;
   bool _filtersExpanded = true;
+  bool _isManualSearch = false;
+  bool _isLoadingManualResults = false;
+  String _manualCategory = 'Minden';
+  String _manualGender = 'Minden';
+  String _manualLocation = 'All locations';
+  String _manualSearchText = '';
   String _location = _locations.first;
   String _paymentMethod = 'cash';
   String _sortOption = 'newest';
@@ -83,6 +91,7 @@ class _SalesScreenState extends State<SalesScreen> {
     _finalPriceController.dispose();
     _notesController.dispose();
     _sizeFilterController.dispose();
+    _manualSearchController.dispose();
     super.dispose();
   }
 
@@ -113,6 +122,7 @@ class _SalesScreenState extends State<SalesScreen> {
 
   void _startSale(List<XFile> files) {
     setState(() {
+      _isManualSearch = false;
       _photos
         ..clear()
         ..addAll(files.map(_SalePhoto.new));
@@ -125,6 +135,103 @@ class _SalesScreenState extends State<SalesScreen> {
       _finalPriceController.clear();
     });
     _analyzeCurrentPhoto();
+  }
+
+  void _startManualSearch() {
+    setState(() {
+      _photos.clear();
+      _manualResults.clear();
+      _selectedItems.clear();
+      _currentPhotoIndex = 0;
+      _isCheckout = false;
+      _isManualSearch = true;
+      _isLoadingManualResults = false;
+      _manualCategory = 'Minden';
+      _manualGender = 'Minden';
+      _manualLocation = 'All locations';
+      _manualSearchText = '';
+      _manualSearchController.clear();
+      _discountController.text = '0';
+      _finalPriceController.clear();
+      _notesController.clear();
+    });
+    _loadManualResults();
+  }
+
+  Future<void> _loadManualResults() async {
+    setState(() => _isLoadingManualResults = true);
+    try {
+      const pageSize = 1000;
+      final results = <Map<String, dynamic>>[];
+      var offset = 0;
+      final (sortColumn, ascending) = switch (_sortOption) {
+        'oldest' => ('created_at', true),
+        'price_low' => ('price_est', true),
+        'price_high' => ('price_est', false),
+        _ => ('created_at', false),
+      };
+
+      while (true) {
+        var query = Supabase.instance.client
+            .from('inventory')
+            .select()
+            .eq('is_sold', false);
+        if (clothingCategories.contains(_manualCategory)) {
+          query = query.eq('category', _manualCategory);
+        }
+        if (genderOptions.contains(_manualGender)) {
+          query = query.eq('gender', _manualGender);
+        }
+        if (_manualLocation != 'All locations') {
+          query = query.eq('location', _manualLocation);
+        }
+        final searchText = _manualSearchText.trim();
+        if (searchText.isNotEmpty) {
+          query = query.or(
+            'name.ilike.%$searchText%,brand.ilike.%$searchText%',
+          );
+        }
+
+        final page = await query
+            .order(sortColumn, ascending: ascending)
+            .order('id')
+            .range(offset, offset + pageSize - 1);
+        results.addAll(
+          page.map((row) => Map<String, dynamic>.from(row as Map)),
+        );
+        if (page.length < pageSize) break;
+        offset += pageSize;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _manualResults
+          ..clear()
+          ..addAll(results);
+        _isLoadingManualResults = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isLoadingManualResults = false);
+      _showMessage('Could not search inventory: $error', isError: true);
+    }
+  }
+
+  void _toggleManualItem(Map<String, dynamic> item) {
+    setState(() {
+      final index = _selectedItems.indexWhere(
+        (selected) => selected['id'] == item['id'],
+      );
+      if (index >= 0) {
+        _selectedItems.removeAt(index);
+      } else {
+        _selectedItems.add(item);
+        final itemLocation = item['location']?.toString();
+        if (_selectedItems.length == 1 && _locations.contains(itemLocation)) {
+          _location = itemLocation!;
+        }
+      }
+    });
   }
 
   Future<void> _analyzeCurrentPhoto() async {
@@ -508,7 +615,11 @@ class _SalesScreenState extends State<SalesScreen> {
       ),
       backgroundColor: Colors.grey[100],
       body: _photos.isEmpty
-          ? _buildPhotoPicker()
+          ? _isManualSearch
+                ? _isCheckout
+                      ? _buildCheckout()
+                      : _buildManualSearch()
+                : _buildPhotoPicker()
           : _isCheckout
           ? _buildCheckout()
           : _buildMatcher(),
@@ -545,6 +656,232 @@ class _SalesScreenState extends State<SalesScreen> {
               onPressed: _takePhoto,
               icon: const Icon(Icons.camera_alt),
               label: const Text('Take a photo'),
+            ),
+            const SizedBox(height: 16),
+            const Text('Or select unsold inventory directly'),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _startManualSearch,
+              icon: const Icon(Icons.search),
+              label: const Text('Search inventory'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildManualSearch() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              DropdownButtonFormField<String>(
+                key: ValueKey(_manualCategory),
+                initialValue: _manualCategory,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  prefixIcon: Icon(Icons.category),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: filterCategories
+                    .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                    .toList(),
+                onChanged: _isLoadingManualResults
+                    ? null
+                    : (value) {
+                        if (value != null) {
+                          setState(() => _manualCategory = value);
+                          _loadManualResults();
+                        }
+                      },
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey(_manualGender),
+                      initialValue: _manualGender,
+                      decoration: const InputDecoration(
+                        labelText: 'Gender',
+                        prefixIcon: Icon(Icons.people),
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: ['Minden', ...genderOptions]
+                          .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                          .toList(),
+                      onChanged: _isLoadingManualResults
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                setState(() => _manualGender = value);
+                                _loadManualResults();
+                              }
+                            },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey(_manualLocation),
+                      initialValue: _manualLocation,
+                      decoration: const InputDecoration(
+                        labelText: 'Location',
+                        prefixIcon: Icon(Icons.store),
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: ['All locations', ..._locations]
+                          .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                          .toList(),
+                      onChanged: _isLoadingManualResults
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                setState(() => _manualLocation = value);
+                                _loadManualResults();
+                              }
+                            },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _manualSearchController,
+                textInputAction: TextInputAction.search,
+                onChanged: (value) => _manualSearchText = value,
+                onSubmitted: (_) => _loadManualResults(),
+                decoration: InputDecoration(
+                  labelText: 'Name or brand',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: IconButton(
+                    tooltip: 'Search inventory',
+                    onPressed: _isLoadingManualResults ? null : _loadManualResults,
+                    icon: const Icon(Icons.search),
+                  ),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${_manualResults.length} items · ${_selectedItems.length} selected',
+                  style: const TextStyle(color: Colors.blueGrey),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _isLoadingManualResults
+              ? const Center(child: CircularProgressIndicator())
+              : _manualResults.isEmpty
+              ? const Center(child: Text('No unsold inventory items found.'))
+              : GridView.builder(
+                  padding: const EdgeInsets.all(10),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 0.68,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: _manualResults.length,
+                  itemBuilder: (context, index) =>
+                      _buildManualItemCard(_manualResults[index]),
+                ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  onPressed: _isLoadingManualResults
+                      ? null
+                      : () => setState(() => _isManualSearch = false),
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Photos'),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: _selectedItems.isEmpty || _isLoadingManualResults
+                      ? null
+                      : _openCheckout,
+                  icon: const Icon(Icons.arrow_forward),
+                  label: Text('Continue (${_selectedItems.length})'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildManualItemCard(Map<String, dynamic> item) {
+    final isSelected = _selectedItems.any((selected) => selected['id'] == item['id']);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      color: isSelected ? Colors.green[50] : null,
+      child: InkWell(
+        onTap: () => _toggleManualItem(item),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ColoredBox(
+                    color: Colors.black12,
+                    child: item['image_url'] == null
+                        ? const Icon(Icons.image_not_supported)
+                        : Image.network(
+                            item['image_url'].toString(),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                const Icon(Icons.broken_image),
+                          ),
+                  ),
+                  if (isSelected)
+                    const Align(
+                      alignment: Alignment.topRight,
+                      child: Padding(
+                        padding: EdgeInsets.all(8),
+                        child: CircleAvatar(
+                          backgroundColor: Colors.green,
+                          child: Icon(Icons.check, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(item['brand']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
+                  Text(item['name']?.toString() ?? 'Unknown item', maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text('${item['category'] ?? '-'} · ${item['gender'] ?? '-'}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11)),
+                  Text('${item['price_est'] ?? 0} Ft'),
+                ],
+              ),
             ),
           ],
         ),

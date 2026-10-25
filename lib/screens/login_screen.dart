@@ -65,7 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const Icon(Icons.inventory_2, size: 60, color: Colors.deepPurple),
                 const SizedBox(height: 20),
                 const Text('Yoaron Inventory', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                const Text('Dolgozói Bejelentkezés (Staff Login)', style: TextStyle(color: Colors.grey)),
+                const Text('Bejelentkezés', style: TextStyle(color: Colors.grey)),
                 const SizedBox(height: 30),
                 
                 TextField(

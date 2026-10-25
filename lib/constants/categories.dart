@@ -1,5 +1,5 @@
 const List<String> clothingCategories = [
-  'Poló',
+  'Póló',
   'Galléros',
   'cable knit',
   'vékony kötött',
@@ -18,6 +18,13 @@ const List<String> clothingCategories = [
   'cipő',
   'mellény',
   'ing',
+  'crewneck',
+  'kabát',
+  'szoknya',
+  'hosszúujjú',
+  'melegítő',
+  'sál',
+  'táska',
   'other',
 ];
 

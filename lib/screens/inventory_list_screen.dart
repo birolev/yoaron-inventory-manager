@@ -21,8 +21,28 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   String _selectedGenderFilter = 'Minden';
   String _selectedLocationFilter = 'All locations';
   String _selectedSizeFilter = '';
+  String _selectedBrandFilter = '';
+  String _selectedColorFilter = '';
   final TextEditingController _sizeFilterController = TextEditingController();
+  final TextEditingController _brandFilterController = TextEditingController();
+  final TextEditingController _colorFilterController = TextEditingController();
   static const _locations = ['Csengery', 'Astoria'];
+  static const _colorFamilies = <List<String>>[
+    ['kék', 'kek', 'blue', 'navy', 'tengerészkék', 'azúr', 'türkiz', 'cyan'],
+    [
+      'pink', 'rózsaszín', 'rozsaszin', 'magenta', 'magneta', 'fukszia',
+      'fuchsia', 'ciklámen', 'ciklamen',
+    ],
+    ['piros', 'vörös', 'voros', 'red', 'bordó', 'bordo', 'burgundy'],
+    ['zöld', 'zold', 'green', 'olíva', 'oliva', 'khaki'],
+    ['sárga', 'sarga', 'yellow', 'mustár', 'mustard'],
+    ['narancs', 'orange', 'barack', 'peach'],
+    ['lila', 'purple', 'ibolya', 'violet', 'levendula', 'lavender'],
+    ['barna', 'brown', 'csoki', 'chocolate', 'bézs', 'beige'],
+    ['szürke', 'szurke', 'grey', 'gray', 'ezüst', 'silver'],
+    ['fehér', 'feher', 'white', 'krém', 'krem', 'ivory'],
+    ['fekete', 'black'],
+  ];
   String _sortColumn = 'created_at';
   bool _sortAscending = false;
 
@@ -35,22 +55,43 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   Future<void> _fetchInventory() async {
     setState(() => _isLoading = true);
     try {
-      var query = Supabase.instance.client.from('inventory').select();
+      const pageSize = 1000;
+      final data = <dynamic>[];
+      var offset = 0;
 
-      if (_selectedFilter != 'Minden') {
-        query = query.eq('category', _selectedFilter);
-      }
-      if (_selectedGenderFilter != 'Minden') {
-        query = query.eq('gender', _selectedGenderFilter);
-      }
-      if (_selectedLocationFilter != 'All locations') {
-        query = query.eq('location', _selectedLocationFilter);
-      }
-      if (_selectedSizeFilter.trim().isNotEmpty) {
-        query = query.ilike('size', _selectedSizeFilter.trim());
-      }
+      while (true) {
+        var query = Supabase.instance.client.from('inventory').select();
 
-      final data = await query.order(_sortColumn, ascending: _sortAscending);
+        if (_selectedFilter != 'Minden') {
+          query = query.eq('category', _selectedFilter);
+        }
+        if (_selectedGenderFilter != 'Minden') {
+          query = query.eq('gender', _selectedGenderFilter);
+        }
+        if (_selectedLocationFilter != 'All locations') {
+          query = query.eq('location', _selectedLocationFilter);
+        }
+        if (_selectedSizeFilter.trim().isNotEmpty) {
+          query = query.ilike('size', _selectedSizeFilter.trim());
+        }
+        if (_selectedBrandFilter.trim().isNotEmpty) {
+          query = query.ilike('brand', '%${_selectedBrandFilter.trim()}%');
+        }
+        if (_selectedColorFilter.trim().isNotEmpty) {
+          final terms = _colorSearchTerms(_selectedColorFilter);
+          query = query.or(
+            terms.map((term) => 'color.ilike.%$term%').join(','),
+          );
+        }
+
+        final page = await query
+            .order(_sortColumn, ascending: _sortAscending)
+            .order('id')
+            .range(offset, offset + pageSize - 1);
+        data.addAll(page);
+        if (page.length < pageSize) break;
+        offset += pageSize;
+      }
 
       setState(() {
         _inventory = data;
@@ -72,7 +113,17 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   @override
   void dispose() {
     _sizeFilterController.dispose();
+    _brandFilterController.dispose();
+    _colorFilterController.dispose();
     super.dispose();
+  }
+
+  List<String> _colorSearchTerms(String input) {
+    final normalized = input.trim().toLowerCase();
+    for (final family in _colorFamilies) {
+      if (family.any((term) => normalized.contains(term))) return family;
+    }
+    return [input.trim()];
   }
 
   Future<String?> _chooseCategory() async {
@@ -664,6 +715,70 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       ),
                     ),
                   ),
+                  SizedBox(
+                    height: 56,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: TextField(
+                        controller: _brandFilterController,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (value) {
+                          setState(() => _selectedBrandFilter = value.trim());
+                          _fetchInventory();
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Filter by brand',
+                          hintText: 'e.g. Nike',
+                          prefixIcon: const Icon(Icons.branding_watermark),
+                          suffixIcon: IconButton(
+                            tooltip: 'Apply brand filter',
+                            icon: const Icon(Icons.search),
+                            onPressed: () {
+                              setState(
+                                () => _selectedBrandFilter =
+                                    _brandFilterController.text.trim(),
+                              );
+                              _fetchInventory();
+                            },
+                          ),
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 56,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: TextField(
+                        controller: _colorFilterController,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: (value) {
+                          setState(() => _selectedColorFilter = value.trim());
+                          _fetchInventory();
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Filter by color',
+                          hintText: 'e.g. kék (all shades), pink, magenta',
+                          prefixIcon: const Icon(Icons.color_lens),
+                          suffixIcon: IconButton(
+                            tooltip: 'Apply color filter',
+                            icon: const Icon(Icons.search),
+                            onPressed: () {
+                              setState(
+                                () => _selectedColorFilter =
+                                    _colorFilterController.text.trim(),
+                              );
+                              _fetchInventory();
+                            },
+                          ),
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ),
                 ] else
                   Align(
                     alignment: Alignment.centerLeft,
@@ -672,7 +787,9 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       child: Text(
                         'Category: $_selectedFilter · Gender: $_selectedGenderFilter · '
                         'Location: $_selectedLocationFilter'
-                        '${_selectedSizeFilter.isEmpty ? '' : ' · Size: $_selectedSizeFilter'}',
+                        '${_selectedSizeFilter.isEmpty ? '' : ' · Size: $_selectedSizeFilter'}'
+                        '${_selectedBrandFilter.isEmpty ? '' : ' · Brand: $_selectedBrandFilter'}'
+                        '${_selectedColorFilter.isEmpty ? '' : ' · Color: $_selectedColorFilter'}',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
