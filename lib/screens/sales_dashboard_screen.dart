@@ -16,6 +16,7 @@ class _SalesDashboardScreenState extends State<SalesDashboardScreen> {
   DateTime _selectedDate = DateTime.now();
   List<Map<String, dynamic>> _sales = [];
   bool _isLoading = true;
+  bool _isSavingEdit = false;
   String? _error;
 
   @override
@@ -37,7 +38,7 @@ class _SalesDashboardScreenState extends State<SalesDashboardScreen> {
           .from('sales')
           .select(
             'id, sold_at, location, payment_method, notes, recorded_by_name, recorded_by_email, recorded_by, '
-            'sale_items(id, item_name, brand, actual_price)',
+            'sale_items(id, item_name, brand, category, size, gender, actual_price)',
           )
           .gte('sold_at', start.toUtc().toIso8601String())
           .lt('sold_at', end.toUtc().toIso8601String())
@@ -93,6 +94,12 @@ class _SalesDashboardScreenState extends State<SalesDashboardScreen> {
     return '$formatted Ft';
   }
 
+  String _formatDateTime(DateTime value) {
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${twoDigits(value.month)}-${twoDigits(value.day)} '
+        '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
+  }
+
   String _dateKey(DateTime date) =>
       '${date.year.toString().padLeft(4, '0')}-'
       '${date.month.toString().padLeft(2, '0')}-'
@@ -129,12 +136,12 @@ class _SalesDashboardScreenState extends State<SalesDashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sales dashboard'),
+        title: const Text('Daily sales'),
         backgroundColor: theme.colorScheme.inversePrimary,
         actions: [
           IconButton(
             tooltip: 'Refresh sales',
-            onPressed: _isLoading ? null : _loadMonth,
+            onPressed: _isLoading || _isSavingEdit ? null : _loadMonth,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -181,6 +188,8 @@ class _SalesDashboardScreenState extends State<SalesDashboardScreen> {
                         itemsFor: _itemsFor,
                         saleTotal: _saleTotal,
                         money: _money,
+                        onEdit: _editSale,
+                        onDelete: _deleteSale,
                       );
 
                       if (constraints.maxWidth >= 900) {
@@ -202,6 +211,373 @@ class _SalesDashboardScreenState extends State<SalesDashboardScreen> {
               ),
             ),
     );
+  }
+
+  Future<void> _editSale(Map<String, dynamic> sale) async {
+    if (_isSavingEdit) return;
+    final items = _itemsFor(sale)
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
+    if (items.isEmpty) return;
+
+    final editItems = items.map((item) => Map<String, dynamic>.from(item)).toList();
+    final detailControllers = <dynamic, Map<String, TextEditingController>>{
+      for (final item in editItems)
+        item['id']: {
+          'name': TextEditingController(
+            text: item['item_name']?.toString() ?? '',
+          ),
+          'brand': TextEditingController(text: item['brand']?.toString() ?? ''),
+          'category': TextEditingController(
+            text: item['category']?.toString() ?? '',
+          ),
+          'size': TextEditingController(text: item['size']?.toString() ?? ''),
+          'price': TextEditingController(
+            text: _asDouble(item['actual_price']).toStringAsFixed(2),
+          ),
+        },
+    };
+    final notesController = TextEditingController(
+      text: sale['notes']?.toString() ?? '',
+    );
+    var soldAt = DateTime.parse(sale['sold_at'].toString()).toLocal();
+    var location = sale['location']?.toString() ?? 'Csengery';
+    var paymentMethod = sale['payment_method']?.toString() ?? 'cash';
+    String? validationError;
+
+    Map<String, dynamic>? edit;
+    try {
+      edit = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Edit sale'),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Removed items return to unsold inventory when you save.',
+                      style: TextStyle(color: Colors.blueGrey),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final item in editItems) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item['item_name']?.toString() ?? 'Item',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Remove item from sale',
+                            onPressed: editItems.length <= 1
+                                ? null
+                                : () => setDialogState(() {
+                                    editItems.removeWhere(
+                                      (entry) => entry['id'] == item['id'],
+                                    );
+                                  }),
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                        ],
+                      ),
+                      TextField(
+                        controller: detailControllers[item['id']]!['name'],
+                        decoration: const InputDecoration(
+                          labelText: 'Item name',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller:
+                                  detailControllers[item['id']]!['brand'],
+                              decoration: const InputDecoration(
+                                labelText: 'Brand',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller:
+                                  detailControllers[item['id']]!['category'],
+                              decoration: const InputDecoration(
+                                labelText: 'Category',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: detailControllers[item['id']]!['size'],
+                              decoration: const InputDecoration(
+                                labelText: 'Size',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller:
+                                  detailControllers[item['id']]!['price'],
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                labelText: 'Sale price (Ft)',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 24),
+                    ],
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(location),
+                      initialValue: location,
+                      decoration: const InputDecoration(
+                        labelText: 'Location',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const ['Csengery', 'Astoria']
+                          .map(
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(value),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) setDialogState(() => location = value);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(paymentMethod),
+                      initialValue: paymentMethod,
+                      decoration: const InputDecoration(
+                        labelText: 'Payment method',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                        DropdownMenuItem(value: 'card', child: Text('Card')),
+                        DropdownMenuItem(
+                          value: 'mixed',
+                          child: Text('Mixed cash/card'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() => paymentMethod = value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Sale date and time'),
+                      subtitle: Text(_formatDateTime(soldAt)),
+                      trailing: const Icon(Icons.edit_calendar),
+                      onTap: () async {
+                        final date = await showDatePicker(
+                          context: dialogContext,
+                          initialDate: soldAt,
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime.now().add(
+                            const Duration(days: 365),
+                          ),
+                        );
+                        if (date == null || !dialogContext.mounted) return;
+                        final time = await showTimePicker(
+                          context: dialogContext,
+                          initialTime: TimeOfDay.fromDateTime(soldAt),
+                        );
+                        if (time == null) return;
+                        setDialogState(() {
+                          soldAt = DateTime(
+                            date.year,
+                            date.month,
+                            date.day,
+                            time.hour,
+                            time.minute,
+                          );
+                        });
+                      },
+                    ),
+                    TextField(
+                      controller: notesController,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (validationError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        validationError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final parsedPrices = editItems
+                      .map(
+                        (item) => double.tryParse(
+                          detailControllers[item['id']]!['price']!.text
+                              .trim()
+                              .replaceAll(',', '.'),
+                        ),
+                      )
+                      .toList();
+                  final prices = parsedPrices.whereType<double>().toList();
+                  if (prices.length != editItems.length ||
+                      prices.any((price) => !price.isFinite || price < 0)) {
+                    setDialogState(
+                      () => validationError =
+                          'Enter a valid non-negative price for each item.',
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogContext, {
+                    'location': location,
+                    'payment_method': paymentMethod,
+                    'sold_at': soldAt.toUtc().toIso8601String(),
+                    'notes': notesController.text.trim(),
+                    'items': [
+                      for (var index = 0; index < editItems.length; index++)
+                        {
+                          'sale_item_id': editItems[index]['id'],
+                          'actual_price': prices[index],
+                          'item_name': detailControllers[editItems[index]['id']]!['name']!.text.trim(),
+                          'brand': detailControllers[editItems[index]['id']]!['brand']!.text.trim(),
+                          'category': detailControllers[editItems[index]['id']]!['category']!.text.trim(),
+                          'size': detailControllers[editItems[index]['id']]!['size']!.text.trim(),
+                        },
+                    ],
+                  });
+                },
+                child: const Text('Save changes'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      for (final controllers in detailControllers.values) {
+        for (final controller in controllers.values) {
+          controller.dispose();
+        }
+      }
+      notesController.dispose();
+    }
+
+    if (edit == null || !mounted) return;
+    setState(() => _isSavingEdit = true);
+    try {
+      await Supabase.instance.client.rpc(
+        'update_sale',
+        params: {
+          'p_sale_id': sale['id'],
+          'p_sold_at': edit['sold_at'],
+          'p_location': edit['location'],
+          'p_payment_method': edit['payment_method'],
+          'p_notes': edit['notes'],
+          'p_items': edit['items'],
+        },
+      );
+      if (!mounted) return;
+      final editedDate = DateTime.parse(edit['sold_at'] as String).toLocal();
+      setState(() {
+        _selectedDate = editedDate;
+        _displayedMonth = DateTime(editedDate.year, editedDate.month);
+        _isSavingEdit = false;
+      });
+      await _loadMonth();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isSavingEdit = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update sale: $error')),
+      );
+    }
+  }
+
+  Future<void> _deleteSale(Map<String, dynamic> sale) async {
+    if (_isSavingEdit) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete entire sale?'),
+        content: const Text(
+          'This removes the sale record and returns its items to unsold inventory.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete sale'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isSavingEdit = true);
+    try {
+      await Supabase.instance.client.rpc(
+        'delete_sale',
+        params: {'p_sale_id': sale['id']},
+      );
+      if (!mounted) return;
+      setState(() => _isSavingEdit = false);
+      await _loadMonth();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isSavingEdit = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not delete sale: $error')),
+      );
+    }
   }
 }
 
@@ -450,6 +826,8 @@ class _DailySalesPanel extends StatelessWidget {
     required this.itemsFor,
     required this.saleTotal,
     required this.money,
+    required this.onEdit,
+    required this.onDelete,
   });
 
   final DateTime date;
@@ -457,6 +835,8 @@ class _DailySalesPanel extends StatelessWidget {
   final List<dynamic> Function(Map<String, dynamic>) itemsFor;
   final double Function(Map<String, dynamic>) saleTotal;
   final String Function(double) money;
+  final ValueChanged<Map<String, dynamic>> onEdit;
+  final ValueChanged<Map<String, dynamic>> onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -540,6 +920,24 @@ class _DailySalesPanel extends StatelessWidget {
                     '${sale['location']} · ${sale['payment_method']} · $recorderLabel',
                   ),
                   children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Wrap(
+                        spacing: 8,
+                        children: [
+                          TextButton.icon(
+                            onPressed: () => onEdit(sale),
+                            icon: const Icon(Icons.edit_outlined),
+                            label: const Text('Edit sale'),
+                          ),
+                          TextButton.icon(
+                            onPressed: () => onDelete(sale),
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Delete sale'),
+                          ),
+                        ],
+                      ),
+                    ),
                     for (final item in items)
                       ListTile(
                         dense: true,
@@ -548,6 +946,8 @@ class _DailySalesPanel extends StatelessWidget {
                         subtitle: Text(
                           [
                                 item['brand']?.toString(),
+                                item['category']?.toString(),
+                                item['size']?.toString(),
                                 'Sale price: ${money(_readPrice(item['actual_price']))}',
                               ]
                               .whereType<String>()
@@ -591,7 +991,7 @@ class _ErrorPanel extends StatelessWidget {
           const Icon(Icons.lock_outline, size: 42),
           const SizedBox(height: 12),
           const Text(
-            'Could not load sales. Confirm the sales dashboard migration is applied and this account has the manager role.',
+            'Could not load sales. Confirm the sales migrations are applied and you are signed in.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
