@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SalesDashboardScreen extends StatefulWidget {
@@ -100,6 +101,84 @@ class _SalesDashboardScreenState extends State<SalesDashboardScreen> {
         '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
   }
 
+  String _formatExportAmount(double value) =>
+      value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(2);
+
+  Future<void> _exportDailySales() async {
+    final sales = _salesOn(_selectedDate)
+      ..sort(
+        (first, second) => DateTime.parse(
+          first['sold_at'].toString(),
+        ).compareTo(DateTime.parse(second['sold_at'].toString())),
+      );
+    if (sales.isEmpty) return;
+
+    const monthNames = [
+      'Jan', 'Feb', 'Már', 'Ápr', 'Máj', 'Jún',
+      'Júl', 'Aug', 'Szept', 'Okt', 'Nov', 'Dec',
+    ];
+    String describeItem(dynamic value) {
+      final item = Map<String, dynamic>.from(value as Map);
+      final name = item['item_name']?.toString().trim() ?? '';
+      final brand = item['brand']?.toString().trim() ?? '';
+      if (brand.isEmpty || name.toLowerCase().contains(brand.toLowerCase())) {
+        return name.isEmpty ? 'Item' : name;
+      }
+      return name.isEmpty ? brand : '$brand $name';
+    }
+
+    final lines = <String>[
+      '${monthNames[_selectedDate.month - 1]} ${_selectedDate.day}.',
+    ];
+    for (final sale in sales) {
+      final itemNames = _itemsFor(sale).map(describeItem).join(', ');
+      final payment = switch (sale['payment_method']) {
+        'cash' => 'kp',
+        'card' => 'kartya',
+        'mixed' => 'cash+kartya',
+        _ => sale['payment_method']?.toString() ?? '',
+      };
+      final notes = sale['notes']?.toString().trim() ?? '';
+      lines.add(
+        '$itemNames ${_formatExportAmount(_saleTotal(sale))} $payment'
+        '${notes.isEmpty ? '' : ' — $notes'}',
+      );
+    }
+    final log = lines.join('\n');
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Daily sales log'),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(child: SelectableText(log)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: log));
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Daily log copied to clipboard')),
+                );
+              }
+            },
+            icon: const Icon(Icons.copy),
+            label: const Text('Copy log'),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _dateKey(DateTime date) =>
       '${date.year.toString().padLeft(4, '0')}-'
       '${date.month.toString().padLeft(2, '0')}-'
@@ -190,6 +269,7 @@ class _SalesDashboardScreenState extends State<SalesDashboardScreen> {
                         money: _money,
                         onEdit: _editSale,
                         onDelete: _deleteSale,
+                        onExport: _exportDailySales,
                       );
 
                       if (constraints.maxWidth >= 900) {
@@ -828,6 +908,7 @@ class _DailySalesPanel extends StatelessWidget {
     required this.money,
     required this.onEdit,
     required this.onDelete,
+    required this.onExport,
   });
 
   final DateTime date;
@@ -837,6 +918,7 @@ class _DailySalesPanel extends StatelessWidget {
   final String Function(double) money;
   final ValueChanged<Map<String, dynamic>> onEdit;
   final ValueChanged<Map<String, dynamic>> onDelete;
+  final VoidCallback onExport;
 
   @override
   Widget build(BuildContext context) {
@@ -856,9 +938,20 @@ class _DailySalesPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              localizations.formatMediumDate(date),
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    localizations.formatMediumDate(date),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: sales.isEmpty ? null : onExport,
+                  icon: const Icon(Icons.ios_share),
+                  label: const Text('Export'),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
